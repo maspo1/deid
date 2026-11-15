@@ -1,0 +1,6 @@
+# 단일 exe(외부 DLL 의존성 없음) 빌드를 위한 정적 CRT 링크
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -1,0 +1,25 @@
+# 빌드 산출물
+/target/
+
+# 개발용 문서·에이전트 설정 (공개 문서는 README.md)
+/docs/
+/AGENTS.md
+/CLAUDE.md
+/.claude/
+
+# 실행파일 (playground 의 시험용 exe 포함)
+*.exe
+*.pdb
+
+# 검사 결과물 (로컬에서 돌려 본 출력 폴더·보고서)
+*_1번/
+*_검사완료/
+*.log
+
+# 편집기·OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store

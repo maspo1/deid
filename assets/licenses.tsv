@@ -1,0 +1,205 @@
+# name	version	license	repository	usage  (make_licenses.py 로 생성)
+ab_glyph	0.2.32	Apache-2.0	https://github.com/alexheretic/ab-glyph	공통
+ab_glyph_rasterizer	0.1.10	Apache-2.0	https://github.com/alexheretic/ab-glyph	공통
+adler2	2.0.1	0BSD OR MIT OR Apache-2.0	https://github.com/oyvindln/adler2	공통
+aes	0.8.4	MIT OR Apache-2.0	https://github.com/RustCrypto/block-ciphers	공통
+ahash	0.8.12	MIT OR Apache-2.0	https://github.com/tkaitchuck/ahash	공통
+aho-corasick	1.1.5	Unlicense OR MIT	https://github.com/BurntSushi/aho-corasick	공통
+arboard	3.7.0	MIT OR Apache-2.0	https://github.com/1Password/arboard	공통
+bitflags	1.3.2	MIT OR Apache-2.0	https://github.com/bitflags/bitflags	macOS 전용
+bitflags	2.13.2	MIT OR Apache-2.0	https://github.com/bitflags/bitflags	공통
+block-buffer	0.10.4	MIT OR Apache-2.0	https://github.com/RustCrypto/utils	공통
+block-padding	0.3.3	MIT OR Apache-2.0	https://github.com/RustCrypto/utils	공통
+block2	0.5.1	MIT	https://github.com/madsmtm/objc2	macOS 전용
+block2	0.6.2	MIT	https://github.com/madsmtm/objc2	macOS 전용
+bumpalo	3.20.3	MIT OR Apache-2.0	https://github.com/fitzgen/bumpalo	공통
+bytecount	0.6.9	Apache-2.0 OR MIT	https://github.com/llogiq/bytecount	공통
+bytemuck	1.25.2	Zlib OR Apache-2.0 OR MIT	https://github.com/Lokathor/bytemuck	공통
+bytemuck_derive	1.12.1	Zlib OR Apache-2.0 OR MIT	https://github.com/Lokathor/bytemuck	공통
+byteorder-lite	0.1.0	Unlicense OR MIT	https://github.com/image-rs/byteorder-lite	공통
+cbc	0.1.2	MIT OR Apache-2.0	https://github.com/RustCrypto/block-modes	공통
+cfg-if	1.0.5	MIT OR Apache-2.0	https://github.com/rust-lang/cfg-if	공통
+cipher	0.4.4	MIT OR Apache-2.0	https://github.com/RustCrypto/traits	공통
+clipboard-win	5.4.3	BSL-1.0	https://github.com/DoumanAsh/clipboard-win	Windows 전용
+core-foundation	0.9.4	MIT OR Apache-2.0	https://github.com/servo/core-foundation-rs	macOS 전용
+core-foundation-sys	0.8.7	MIT OR Apache-2.0	https://github.com/servo/core-foundation-rs	macOS 전용
+core-graphics	0.23.2	MIT OR Apache-2.0	https://github.com/servo/core-foundation-rs	macOS 전용
+core-graphics-types	0.1.3	MIT OR Apache-2.0	https://github.com/servo/core-foundation-rs	macOS 전용
+core_detect	1.0.0	MIT OR Apache-2.0	https://github.com/thomcc/core_detect	Windows 전용
+cpufeatures	0.2.17	MIT OR Apache-2.0	https://github.com/RustCrypto/utils	공통
+crc32fast	1.5.5	MIT OR Apache-2.0	https://github.com/srijs/rust-crc32fast	공통
+crossbeam-deque	0.8.8	MIT OR Apache-2.0	https://github.com/crossbeam-rs/crossbeam	공통
+crossbeam-epoch	0.9.21	MIT OR Apache-2.0	https://github.com/crossbeam-rs/crossbeam	공통
+crossbeam-utils	0.8.23	MIT OR Apache-2.0	https://github.com/crossbeam-rs/crossbeam	공통
+crypto-common	0.1.7	MIT OR Apache-2.0	https://github.com/RustCrypto/traits	공통
+cursor-icon	1.2.0	MIT OR Apache-2.0 OR Zlib	https://github.com/rust-windowing/cursor-icon	공통
+digest	0.10.7	MIT OR Apache-2.0	https://github.com/RustCrypto/traits	공통
+dispatch	0.2.0	MIT	http://github.com/SSheldon/rust-dispatch	macOS 전용
+dispatch2	0.3.1	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+displaydoc	0.2.7	MIT OR Apache-2.0	https://github.com/yaahc/displaydoc	공통
+dpi	0.1.2	Apache-2.0 AND MIT	https://github.com/rust-windowing/winit	공통
+ecb	0.1.2	MIT	https://github.com/magic-akari/ecb	공통
+ecolor	0.31.1	MIT OR Apache-2.0	https://github.com/emilk/egui	공통
+egui	0.31.1	MIT OR Apache-2.0	https://github.com/emilk/egui	공통
+egui-winit	0.31.1	MIT OR Apache-2.0	https://github.com/emilk/egui/tree/master/crates/egui-winit	공통
+egui_extras	0.31.1	MIT OR Apache-2.0	https://github.com/emilk/egui	공통
+either	1.19.0	MIT OR Apache-2.0	https://github.com/rayon-rs/either	공통
+emath	0.31.1	MIT OR Apache-2.0	https://github.com/emilk/egui/tree/master/crates/emath	공통
+encoding_rs	0.8.44	(Apache-2.0 OR MIT) AND BSD-3-Clause	https://github.com/hsivonen/encoding_rs	공통
+enum-map	2.7.3	MIT OR Apache-2.0	https://codeberg.org/xfix/enum-map	공통
+enum-map-derive	0.17.0	MIT OR Apache-2.0	https://codeberg.org/xfix/enum-map	공통
+epaint	0.31.1	MIT OR Apache-2.0	https://github.com/emilk/egui/tree/master/crates/epaint	공통
+epaint_default_fonts	0.31.1	(MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0	https://github.com/emilk/egui/tree/master/crates/epaint_default_fonts	공통
+equivalent	1.0.3	Apache-2.0 OR MIT	https://github.com/indexmap-rs/equivalent	공통
+error-code	3.4.0	BSL-1.0	https://github.com/DoumanAsh/error-code	Windows 전용
+fax	0.2.7	MIT	https://github.com/pdf-rs/fax	공통
+fdeflate	0.3.7	MIT OR Apache-2.0	https://github.com/image-rs/fdeflate	공통
+flate2	1.1.11	MIT OR Apache-2.0	https://github.com/rust-lang/flate2-rs	공통
+foreign-types	0.5.0	MIT OR Apache-2.0	https://github.com/sfackler/foreign-types	macOS 전용
+foreign-types-macros	0.2.4	MIT OR Apache-2.0	https://github.com/sfackler/foreign-types	macOS 전용
+foreign-types-shared	0.3.1	MIT OR Apache-2.0	https://github.com/sfackler/foreign-types	macOS 전용
+form_urlencoded	1.2.2	MIT OR Apache-2.0	https://github.com/servo/rust-url	공통
+generic-array	0.14.7	MIT	https://github.com/fizyk20/generic-array.git	공통
+getrandom	0.3.4	MIT OR Apache-2.0	https://github.com/rust-random/getrandom	공통
+half	2.7.1	MIT OR Apache-2.0	https://github.com/VoidStarKat/half-rs	공통
+hashbrown	0.17.1	MIT OR Apache-2.0	https://github.com/rust-lang/hashbrown	공통
+icu_collections	2.4.0	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+icu_locale_core	2.4.0	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+icu_normalizer	2.4.0	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+icu_normalizer_data	2.4.0	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+icu_properties	2.4.0	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+icu_properties_data	2.4.0	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+icu_provider	2.4.0	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+idna	1.1.0	MIT OR Apache-2.0	https://github.com/servo/rust-url/	공통
+idna_adapter	1.2.2	Apache-2.0 OR MIT	https://github.com/hsivonen/idna_adapter	공통
+image	0.25.10	MIT OR Apache-2.0	https://github.com/image-rs/image	공통
+indexmap	2.14.2	Apache-2.0 OR MIT	https://github.com/indexmap-rs/indexmap	공통
+inout	0.1.4	MIT OR Apache-2.0	https://github.com/RustCrypto/utils	공통
+itoa	1.0.19	MIT OR Apache-2.0	https://github.com/dtolnay/itoa	공통
+libc	0.2.191	MIT OR Apache-2.0	https://github.com/rust-lang/libc	macOS 전용
+litemap	0.8.3	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+lock_api	0.4.14	MIT OR Apache-2.0	https://github.com/Amanieu/parking_lot	공통
+log	0.4.35	MIT OR Apache-2.0	https://github.com/rust-lang/log	공통
+lopdf	0.36.0	MIT	https://github.com/J-F-Liu/lopdf.git	공통
+md-5	0.10.6	MIT OR Apache-2.0	https://github.com/RustCrypto/hashes	공통
+memchr	2.8.3	Unlicense OR MIT	https://github.com/BurntSushi/memchr	공통
+memmap2	0.9.12	MIT OR Apache-2.0	https://github.com/RazrFalcon/memmap2-rs	공통
+miniz_oxide	0.8.9	MIT OR Zlib OR Apache-2.0	https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide	공통
+miniz_oxide	0.9.1	MIT OR Zlib OR Apache-2.0	https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide	공통
+moxcms	0.8.1	BSD-3-Clause OR Apache-2.0	https://github.com/awxkee/moxcms.git	공통
+multiversion_no_op	1.0.0	Apache-2.0 OR MIT	https://github.com/hsivonen/multiversion_no_op	공통
+nohash-hasher	0.2.0	Apache-2.0 OR MIT	https://github.com/paritytech/nohash-hasher	공통
+nom	8.0.0	MIT	https://github.com/rust-bakery/nom	공통
+nom_locate	5.0.0	MIT	https://github.com/fflorent/nom_locate	공통
+num-traits	0.2.19	MIT OR Apache-2.0	https://github.com/rust-num/num-traits	공통
+objc-sys	0.3.5	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2	0.5.3	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2	0.6.5	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-app-kit	0.2.2	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-app-kit	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-av-foundation	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-audio	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-audio-types	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-data	0.2.2	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-foundation	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-graphics	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-image	0.2.2	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-image	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-media	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-ml	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-core-video	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-encode	4.1.0	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-foundation	0.2.2	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-foundation	0.3.2	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-image-io	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-io-surface	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-metal	0.2.2	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-quartz-core	0.2.2	MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-quartz-core	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+objc2-vision	0.3.2	Zlib OR Apache-2.0 OR MIT	https://github.com/madsmtm/objc2	macOS 전용
+once_cell	1.21.4	MIT OR Apache-2.0	https://github.com/matklad/once_cell	공통
+owned_ttf_parser	0.25.1	Apache-2.0	https://github.com/alexheretic/owned-ttf-parser	공통
+parking_lot	0.12.5	MIT OR Apache-2.0	https://github.com/Amanieu/parking_lot	공통
+parking_lot_core	0.9.12	MIT OR Apache-2.0	https://github.com/Amanieu/parking_lot	공통
+percent-encoding	2.3.2	MIT OR Apache-2.0	https://github.com/servo/rust-url/	공통
+pin-project-lite	0.2.17	Apache-2.0 OR MIT	https://github.com/taiki-e/pin-project-lite	공통
+png	0.18.1	MIT OR Apache-2.0	https://github.com/image-rs/image-png	공통
+potential_utf	0.1.6	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+ppv-lite86	0.2.21	MIT OR Apache-2.0	https://github.com/cryptocorrosion/cryptocorrosion	공통
+proc-macro2	1.0.107	MIT OR Apache-2.0	https://github.com/dtolnay/proc-macro2	공통
+profiling	1.0.18	MIT OR Apache-2.0	https://github.com/aclysma/profiling	공통
+pxfm	0.1.30	BSD-3-Clause OR Apache-2.0	https://github.com/awxkee/pxfm	공통
+quick-error	2.0.1	MIT OR Apache-2.0	http://github.com/tailhook/quick-error	공통
+quote	1.0.47	MIT OR Apache-2.0	https://github.com/dtolnay/quote	공통
+rand	0.9.5	MIT OR Apache-2.0	https://github.com/rust-random/rand	공통
+rand_chacha	0.9.0	MIT OR Apache-2.0	https://github.com/rust-random/rand	공통
+rand_core	0.9.5	MIT OR Apache-2.0	https://github.com/rust-random/rand	공통
+rangemap	1.8.0	MIT OR Apache-2.0	https://github.com/jeffparsons/rangemap	공통
+raw-window-handle	0.6.2	MIT OR Apache-2.0 OR Zlib	https://github.com/rust-windowing/raw-window-handle	공통
+rayon	1.12.0	MIT OR Apache-2.0	https://github.com/rayon-rs/rayon	공통
+rayon-core	1.13.0	MIT OR Apache-2.0	https://github.com/rayon-rs/rayon	공통
+regex	1.13.1	MIT OR Apache-2.0	https://github.com/rust-lang/regex	공통
+regex-automata	0.4.18	MIT OR Apache-2.0	https://github.com/rust-lang/regex	공통
+regex-syntax	0.8.11	MIT OR Apache-2.0	https://github.com/rust-lang/regex	공통
+rfd	0.15.4	MIT	https://github.com/PolyMeilex/rfd	macOS 전용
+scopeguard	1.2.0	MIT OR Apache-2.0	https://github.com/bluss/scopeguard	공통
+serde	1.0.229	MIT OR Apache-2.0	https://github.com/serde-rs/serde	공통
+serde_core	1.0.229	MIT OR Apache-2.0	https://github.com/serde-rs/serde	공통
+sha2	0.10.9	MIT OR Apache-2.0	https://github.com/RustCrypto/hashes	공통
+simd-adler32	0.3.10	MIT	https://github.com/mcountryman/simd-adler32	공통
+simdutf8	0.1.5	MIT OR Apache-2.0	https://github.com/rusticstuff/simdutf8	공통
+smallvec	1.16.5	MIT OR Apache-2.0	https://github.com/servo/rust-smallvec	공통
+smol_str	0.2.2	MIT OR Apache-2.0	https://github.com/rust-analyzer/smol_str	공통
+softbuffer	0.4.8	MIT OR Apache-2.0	https://github.com/rust-windowing/softbuffer	공통
+stable_deref_trait	1.2.1	MIT OR Apache-2.0	https://github.com/storyyeller/stable_deref_trait	공통
+stringprep	0.1.5	MIT OR Apache-2.0	https://github.com/sfackler/rust-stringprep	공통
+syn	2.0.119	MIT OR Apache-2.0	https://github.com/dtolnay/syn	공통
+syn	3.0.10	MIT OR Apache-2.0	https://github.com/dtolnay/syn	공통
+synstructure	0.14.0	MIT	https://github.com/mystor/synstructure	공통
+thiserror	2.0.21	MIT OR Apache-2.0	https://github.com/dtolnay/thiserror	공통
+thiserror-impl	2.0.21	MIT OR Apache-2.0	https://github.com/dtolnay/thiserror	공통
+tiff	0.11.3	MIT	https://github.com/image-rs/image-tiff	공통
+tinystr	0.8.5	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+tinyvec	1.13.3	Zlib OR Apache-2.0 OR MIT	https://github.com/Lokathor/tinyvec	공통
+tracing	0.1.44	MIT	https://github.com/tokio-rs/tracing	공통
+tracing-core	0.1.36	MIT	https://github.com/tokio-rs/tracing	공통
+ttf-parser	0.25.1	MIT OR Apache-2.0	https://github.com/harfbuzz/ttf-parser	공통
+typenum	1.20.1	MIT OR Apache-2.0	https://github.com/paholg/typenum	공통
+unicode-bidi	0.3.18	MIT OR Apache-2.0	https://github.com/servo/unicode-bidi	공통
+unicode-ident	1.0.27	(MIT OR Apache-2.0) AND Unicode-3.0	https://github.com/dtolnay/unicode-ident	공통
+unicode-normalization	0.1.26	(MIT OR Apache-2.0) AND Unicode-3.0	https://github.com/unicode-rs/unicode-normalization	공통
+unicode-properties	0.1.5	(MIT OR Apache-2.0) AND Unicode-3.0	https://github.com/unicode-rs/unicode-properties	공통
+unicode-segmentation	1.13.3	MIT OR Apache-2.0	https://github.com/unicode-rs/unicode-segmentation	Windows 전용
+url	2.5.8	MIT OR Apache-2.0	https://github.com/servo/rust-url	공통
+utf8_iter	1.1.0	Apache-2.0 OR MIT	https://github.com/hsivonen/utf8_iter	공통
+utf_types	1.0.0	Apache-2.0 OR MIT	https://github.com/hsivonen/utf_types	공통
+web-time	1.1.0	MIT OR Apache-2.0	https://github.com/daxpedda/web-time	공통
+webbrowser	1.2.7	MIT OR Apache-2.0	https://github.com/amodm/webbrowser-rs	공통
+weezl	0.1.12	MIT OR Apache-2.0	https://github.com/image-rs/weezl	공통
+windows	0.58.0	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows-core	0.58.0	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows-implement	0.58.0	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows-interface	0.58.0	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows-link	0.2.1	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows-result	0.2.0	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows-strings	0.1.0	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows-sys	0.52.0	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows-sys	0.61.2	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows-targets	0.52.6	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+windows_x86_64_gnu	0.52.6	MIT OR Apache-2.0	https://github.com/microsoft/windows-rs	Windows 전용
+winit	0.30.13	Apache-2.0	https://github.com/rust-windowing/winit	공통
+writeable	0.6.4	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+yoke	0.8.4	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+yoke-derive	0.8.4	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+zerocopy	0.8.63	BSD-2-Clause OR Apache-2.0 OR MIT	https://github.com/google/zerocopy	공통
+zerocopy-derive	0.8.63	BSD-2-Clause OR Apache-2.0 OR MIT	https://github.com/google/zerocopy	공통
+zerofrom	0.1.8	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+zerofrom-derive	0.1.8	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+zerotrie	0.2.5	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+zerovec	0.11.9	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+zerovec-derive	0.11.7	Unicode-3.0	https://github.com/unicode-org/icu4x	공통
+zip	2.6.1	MIT	https://github.com/zip-rs/zip2.git	공통
+zlib-rs	0.6.8	Zlib	https://github.com/trifectatechfoundation/zlib-rs	공통
+zopfli	0.8.4	Apache-2.0	https://github.com/zopfli-rs/zopfli	공통
+zune-core	0.5.3	MIT OR Apache-2.0 OR Zlib	https://github.com/etemesi254/zune-image	공통
+zune-jpeg	0.5.15	MIT OR Apache-2.0 OR Zlib	https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg	공통
