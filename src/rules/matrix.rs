@@ -49,12 +49,11 @@ fn lanes() -> Vec<Lane> {
     let mut v = Vec::new();
     let rep = |c: &'static [u8], n: usize| std::iter::repeat(c).take(n);
     let seq = |parts: Vec<Vec<&'static [u8]>>| parts.concat();
-    // 전화: 01X + 7~8자리 (구분자 없음) / 01X s 3~4 s 4 (구분자는 같은 글자). 가운데 첫 자리는 1~9
-    v.push(Lane { fam: Fam::Phone, cols: seq(vec![vec![b"0", b"1", b"016789", MID], rep(D, 7).collect()]), ends: vec![10, 11] });
+    // 전화: 010 + 8자리 (구분자 없음) / 010 s 4 s 4 (구분자는 같은 글자). 가운데 첫 자리는 1~9
+    v.push(Lane { fam: Fam::Phone, cols: seq(vec![vec![b"0", b"1", b"0", MID], rep(D, 7).collect()]), ends: vec![11] });
     for s in [b"-" as &[u8], b".", b" "] {
-        let head: Vec<&[u8]> = vec![b"0", b"1", b"016789", s, MID];
-        v.push(Lane { fam: Fam::Phone, cols: seq(vec![head.clone(), rep(D, 3).collect(), vec![s], rep(D, 4).collect()]), ends: vec![13] });
-        v.push(Lane { fam: Fam::Phone, cols: seq(vec![head, rep(D, 2).collect(), vec![s], rep(D, 4).collect()]), ends: vec![12] });
+        let head: Vec<&[u8]> = vec![b"0", b"1", b"0", s, MID];
+        v.push(Lane { fam: Fam::Phone, cols: seq(vec![head, rep(D, 3).collect(), vec![s], rep(D, 4).collect()]), ends: vec![13] });
     }
     // 주민·외국인: YYMMDD (월 십의 자리 0·1, 일 십의 자리 0~3) + 성별(1~8) + 6자리, 구분자 없음 / '-' / ' '
     let birth: Vec<&[u8]> = vec![D, D, b"01", D, b"0123", D];
@@ -272,14 +271,14 @@ mod tests {
     #[test]
     fn finds_each_format() {
         let m = Matrix::new();
-        let t = "tel 010-1111-2222, 011.234.5678 / 01011112222 주민 881111-1234567 카드 4111-1111-1111-1111 \
+        let t = "tel 010-1111-2222, 010.2345.6789 / 01011112222 주민 881111-1234567 카드 4111-1111-1111-1111 \
                  amex 3782-822463-10005 host 192.168.77.1:8080 끝";
         let got: Vec<&str> = {
             let mut v = new(&m, t);
             v.sort_by_key(|h| h.start);
             v.iter().map(|h| &t[h.start..h.end]).collect::<Vec<_>>()
         };
-        for want in ["010-1111-2222", "011.234.5678", "01011112222", "881111-1234567", "4111-1111-1111-1111", "3782-822463-10005", "192.168.77.1"] {
+        for want in ["010-1111-2222", "010.2345.6789", "01011112222", "881111-1234567", "4111-1111-1111-1111", "3782-822463-10005", "192.168.77.1"] {
             assert!(got.contains(&want), "{want} 없음: {got:?}");
         }
     }

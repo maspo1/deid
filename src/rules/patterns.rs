@@ -7,6 +7,7 @@ use regex::Regex;
 
 pub struct Patterns {
     phone: Regex,
+    intl_phone: Regex,
     card: Regex,
     card_amex: Regex,
     email: Regex,
@@ -85,7 +86,9 @@ pub(super) fn card_context(text: &str, s: usize) -> bool {
 impl Patterns {
     pub fn new() -> Self {
         Patterns {
-            phone: re(r"(\+82[-. ]?)?(0?1[0-9])([-. ]?)([0-9]{3,4})([-. ]?)([0-9]{4})"),
+            phone: re(r"(010)([-. ]?)([0-9]{4})([-. ]?)([0-9]{4})"),
+            // + 국가번호 … : 숫자 묶음을 공백·하이픈·점·괄호로 이음 (+82 10-1234-5678, +1 (555) 123-4567)
+            intl_phone: re(r"\+[0-9]{1,4}(?:[ .\-]?\(?[0-9]{1,5}\)?){1,6}"),
             card: re(r"[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{1,4}"),
             card_amex: re(r"3[0-9]{3}[- ]?[0-9]{6}[- ]?[0-9]{4,5}"),
             email: re(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,24}"),
@@ -96,23 +99,35 @@ impl Patterns {
         }
     }
 
+    /// 국내 휴대폰 010 (정답 행렬 `matrix` 와 같은 결과인지 대조하는 기준 경로)
     pub fn phones(&self, text: &str, out: &mut Vec<Hit>) {
         for c in self.phone.captures_iter(text) {
             let m = c.get(0).unwrap();
-            let intl = c.get(1).is_some();
-            let prefix = &c[2];
-            // 국제표기(+82)가 아니면 반드시 0으로 시작
-            if !intl && !prefix.starts_with('0') {
-                continue;
-            }
-            if &c[3] != &c[5] {
+            if &c[2] != &c[4] {
                 continue; // 구분자 불일치 (010-1234 5678)
             }
             if !digit_bounded(text, m.start(), m.end()) || glued_to_code(text, m.start(), m.end()) {
                 continue;
             }
-            if dict::valid_mobile(prefix, &c[4], &c[6]) {
+            if dict::valid_mobile(&c[1], &c[3], &c[5]) {
                 out.push(Hit::new(m.start(), m.end(), InfoType::Phone, MaskMode::Alnum));
+            }
+        }
+    }
+
+    /// 해외핸드폰번호: + 국가번호로 시작하는 국제 표기 (+82 10-1234-5678 포함)
+    pub fn intl_phones(&self, text: &str, out: &mut Vec<Hit>) {
+        for m in self.intl_phone.find_iter(text) {
+            // 끝의 닫히지 않은 괄호·구분자는 번호가 아님
+            let v = m.as_str().trim_end_matches(|c: char| !c.is_ascii_digit());
+            let (s, e) = (m.start(), m.start() + v.len());
+            // + 앞에 영숫자가 붙으면(a+82…, 1+2…) 수식·코드, 뒤에 숫자가 이어지면 잘린 일치
+            if char_before(text, s).is_some_and(|c| c.is_alphanumeric()) || char_after(text, e).is_some_and(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            let groups: Vec<&str> = v[1..].split(|c: char| !c.is_ascii_digit()).filter(|g| !g.is_empty()).collect();
+            if dict::intl_phone_ok(&groups) {
+                out.push(Hit::new(s, e, InfoType::IntlPhone, MaskMode::Alnum));
             }
         }
     }
@@ -319,10 +334,23 @@ mod tests {
     #[test]
     fn phone() {
         assert_eq!(run(Patterns::phones, "연락처: 010-1111-2222 입니다"), vec!["010-1111-2222"]);
-        assert_eq!(run(Patterns::phones, "+82-10-1111-2222"), vec!["+82-10-1111-2222"]);
         assert_eq!(run(Patterns::phones, "01011112222"), vec!["01011112222"]);
         assert!(run(Patterns::phones, "999-1111-2222").is_empty());
         assert!(run(Patterns::phones, "id=2010111122222").is_empty());
+        // 010 만
+        assert!(run(Patterns::phones, "011-234-5678").is_empty());
+        assert!(run(Patterns::phones, "019-1234-5678").is_empty());
+    }
+
+    #[test]
+    fn intl_phone() {
+        for t in ["+82-10-1111-2222", "+82 10 1111 2222", "+821011112222", "+1 (555) 123-4567", "+44 20 7946 0958", "+33 6 12 34 56 78", "+86 138 0013 8000", "+852 9123 4567"] {
+            assert_eq!(run(Patterns::intl_phones, &format!("tel {t} 끝")), vec![t], "{t}");
+        }
+        // 증감 숫자, 없는 국가번호, 수식, 짧은 것
+        for t in ["+150000", "+1500000 원", "+0 123 456 789", "+80 1234 5678", "a+82 10 1111 2222", "1+2 3 4 5 6 7 8", "+1 2 3 4 5 6 7 8"] {
+            assert!(run(Patterns::intl_phones, t).is_empty(), "{t}: {:?}", run(Patterns::intl_phones, t));
+        }
     }
 
     #[test]

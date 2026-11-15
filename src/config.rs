@@ -50,12 +50,22 @@ pub struct Options {
     pub exts: crate::exts::ExtFilter,
     /// 사용자가 화면에서 제외한 값 — 검출된 원본 문자열과 완전히 같으면 치환하지 않는다
     pub excluded: HashSet<String>,
+    /// 사용자가 화면에서 제외한 형식 (`format_key`: 정보타입 + 숫자를 #로 바꾼 모양) — 같은 형식은 모두 치환하지 않는다
+    pub excluded_formats: HashSet<String>,
+}
+
+/// 형식 제외 키: 같은 정보타입(이름, 예: "IP주소")에서 숫자만 다르고 자리·기호·공백이 같은 값은 같은 형식
+/// (`1 0 0 : 1` ≡ `2 5 5 : 3`). 화면은 보고서 레코드의 정보타입 이름으로 같은 키를 만든다.
+pub fn format_key(label: &str, value: &str) -> String {
+    let shape: String = value.trim().chars().map(|c| if c.is_ascii_digit() { '#' } else { c }).collect();
+    format!("{label}\t{shape}")
 }
 
 impl Default for Options {
     fn default() -> Self {
         Options {
-            enabled: InfoType::BUILTIN.iter().cloned().collect(),
+            // IP주소(심층)은 기본 꺼짐 — 켜야 점 대신 다른 기호를 쓴 IP 까지 찾는다
+            enabled: InfoType::BUILTIN.iter().filter(|t| **t != InfoType::IpDeep).cloned().collect(),
             threshold: 0.7,
             custom: Vec::new(),
             min_binary_run: 6,
@@ -73,6 +83,7 @@ impl Default for Options {
             ml_context: true,
             exts: crate::exts::ExtFilter::default(),
             excluded: HashSet::new(),
+            excluded_formats: HashSet::new(),
         }
     }
 }
@@ -81,8 +92,15 @@ impl Options {
     pub fn is_on(&self, k: &InfoType) -> bool {
         match k {
             InfoType::Custom(_) => true,
+            // 심층을 켜면 점 표기 IP 도 함께 검사
+            InfoType::Ip => self.enabled.contains(k) || self.ip_deep(),
             _ => self.enabled.contains(k),
         }
+    }
+
+    /// IP주소(심층): 점 대신 다른 기호를 쓴 IP 를 표 검사·학습 모델로 찾음
+    pub fn ip_deep(&self) -> bool {
+        self.enabled.contains(&InfoType::IpDeep)
     }
 
     /// `라벨=정규식` 형식의 사용자 패턴 추가

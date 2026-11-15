@@ -18,7 +18,7 @@ pub const CLASS: windows::core::PCWSTR = w!("deid_panel");
 
 /// 패널 컨트롤 ID (200번대)
 pub mod oid {
-    pub const TYPE0: u16 = 200; // ~210
+    pub const TYPE0: u16 = 180; // ~192 (InfoType::BUILTIN 13개)
     pub const ALL: u16 = 212;
     pub const NONE: u16 = 213;
     pub const ML: u16 = 214;
@@ -153,13 +153,13 @@ impl Panel {
         b.y += 20;
         let mut types = Vec::new();
         for (i, t) in InfoType::BUILTIN.iter().enumerate() {
-            let (col, row) = if i < 5 { (0, i) } else { (1, i - 5) };
+            let (col, row) = if i < 6 { (0, i) } else { (1, i - 6) };
             let save = b.y;
             b.y += row as i32 * 22;
             types.push(b.check(t.label(), oid::TYPE0 + i as u16, col * 140, 136));
             b.y = save;
         }
-        b.y += 6 * 22 + 2;
+        b.y += 7 * 22 + 2;
         b.button("모두 선택", oid::ALL, 0, 80);
         b.button("모두 해제", oid::NONE, 86, 80);
         b.y += 28;

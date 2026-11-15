@@ -102,7 +102,11 @@ fn formal(r: &mut Rng) -> (String, usize, usize, usize) {
 const NAMES: [&str; 5] = ["none", "phone", "ip", "card", "rrn"];
 
 fn main() {
-    let det = Detector::new(Options::default());
+    // IP 변형은 IP주소(심층)에서만 찾으므로 심층을 켜고 잰다 (함정 오탐은 기본 설정도 함께)
+    let mut deep = Options::default();
+    deep.enabled.insert(InfoType::IpDeep);
+    let det = Detector::new(deep);
+    let plain = Detector::new(Options::default());
     let mut r = Rng::new(9_001);
 
     // 1. 정형 표기
@@ -160,12 +164,13 @@ fn main() {
     }
 
     // 3. 함정
-    let (mut fp, mut n) = (0, 0);
+    let (mut fp, mut n, mut fp_plain) = (0, 0, 0);
     let mut shown = Vec::new();
     let mut r = Rng::new(9_003);
     for _ in 0..30_000 {
         let t = eval_negative(&mut r);
         n += 1;
+        fp_plain += !plain.scan(&t, Lang::None).is_empty() as usize;
         let hits = det.scan(&t, Lang::None);
         if !hits.is_empty() {
             fp += 1;
@@ -174,7 +179,7 @@ fn main() {
             }
         }
     }
-    println!("[3] 함정 오탐: {fp}/{n} ({:.2}%)", 100.0 * fp as f64 / n as f64);
+    println!("[3] 함정 오탐 (심층 켬): {fp}/{n} ({:.2}%)   기본 설정(IP 점 표기만): {fp_plain}/{n} ({:.2}%)", 100.0 * fp as f64 / n as f64, 100.0 * fp_plain as f64 / n as f64);
     for s in &shown {
         println!("    {s}");
     }
@@ -187,6 +192,7 @@ fn main() {
         "129  4  22(21", "31.6→35.8", "152.1 145 150", "0.240.170.17", "880922000000", "8809220000000", "880922-0000000",
         "250117,250118,2502", "260116,260117,2601", "11.7.8.5.122.90.3.1.7.x", "122.90 -> 3.1", "image.png",
         "IMG_20240117_120712.png", "21.0.ㅇ.88.11.25.1", "21.0.88.11.25.1.7", "3^4*55-12^9*200-1", "103^234^126^56.7^8",
+        "1 0 0 : 1", "011-234-5678", "019 1234 5678",
     ];
     let bad: Vec<String> = reported
         .iter()

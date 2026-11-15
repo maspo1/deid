@@ -37,21 +37,54 @@ pub fn ipv4_is_trivial(s: &str) -> bool {
 
 // ───────────── 휴대폰 번호 ─────────────
 
-/// prefix: "010" 또는 "10"(+82 표기), mid, last
+/// 국내 휴대폰은 010-XXXX-XXXX 만 검사한다 (국제 표기 +82 10… 은 `intl_phone_ok` 의 해외핸드폰번호).
+/// 가운데 첫 자리 0(0000 포함)·끝 0000 은 발급되지 않는다
 pub fn valid_mobile(prefix: &str, mid: &str, last: &str) -> bool {
-    let p = prefix.trim_start_matches('0');
-    // 국번: 10, 11, 16, 17, 18, 19 만 존재
-    if !matches!(p, "10" | "11" | "16" | "17" | "18" | "19") {
+    prefix == "010" && mid.len() == 4 && last.len() == 4 && !mid.starts_with('0') && last != "0000"
+}
+
+// ───────────── 국제 표기 전화번호 (+국가번호) ─────────────
+// 국가번호는 접두어가 겹치지 않는다(ITU E.164): 1·7 은 한 자리, 아래 두 자리 목록, 그 밖은 아래 두 자리 구역의 세 자리.
+
+const CC2: [u8; 44] = [
+    20, 27, 30, 31, 32, 33, 34, 36, 39, 40, 41, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56, 57, 58, 60, 61, 62, 63, 64, 65, 66, 81,
+    82, 84, 86, 90, 91, 92, 93, 94, 95, 98,
+];
+/// 세 자리 국가번호가 있는 두 자리 구역 (21x 북아프리카, 35x 유럽, 85x 동아시아, 97x 중동 …)
+const CC3_ZONE: [u8; 21] = [21, 22, 23, 24, 25, 26, 29, 35, 37, 38, 42, 50, 59, 67, 68, 69, 85, 88, 96, 97, 99];
+
+/// 숫자열(+ 뒤) 앞의 국가번호 길이 (없는 번호면 None)
+pub fn country_code_len(d: &str) -> Option<usize> {
+    let b = d.as_bytes();
+    if b.is_empty() || !b[0].is_ascii_digit() {
+        return None;
+    }
+    if b[0] == b'1' || b[0] == b'7' {
+        return Some(1);
+    }
+    let two: u8 = d.get(..2)?.parse().ok()?;
+    if CC2.contains(&two) {
+        Some(2)
+    } else if CC3_ZONE.contains(&two) && d.len() >= 3 {
+        Some(3)
+    } else {
+        None
+    }
+}
+
+/// 국제 표기 전화번호 검사: 숫자 묶음들(+ 바로 뒤부터).
+/// 전체 8~15자리(E.164) · 있는 국가번호 · 국가번호는 첫 묶음 안(+82 10… / +8210…) ·
+/// 국가번호 뒤 한 자리 묶음은 하나까지(+33 6 12 34 56 78) · 붙여 쓴 것은 11자리 이상(+150000 같은 증감 숫자와 구분)
+pub fn intl_phone_ok(groups: &[&str]) -> bool {
+    let d: String = groups.concat();
+    if !(8..=15).contains(&d.len()) {
         return false;
     }
-    // 가운데 첫 자리 0(0000 포함)·끝 0000 은 발급되지 않는다
-    if last.len() != 4 || mid.starts_with('0') || last == "0000" {
-        return false;
+    let Some(cc) = country_code_len(&d) else { return false };
+    if groups.len() == 1 {
+        return d.len() >= 11;
     }
-    match p {
-        "10" => mid.len() == 4,
-        _ => mid.len() == 3 || mid.len() == 4,
-    }
+    groups[0].len() >= cc && groups[1..].iter().filter(|g| g.len() == 1).count() <= 1
 }
 
 // ───────────── 카드 번호 ─────────────
@@ -150,9 +183,8 @@ const fn bits(at: &[u32]) -> u32 {
     m
 }
 
-/// 휴대폰 010-XXXX-XXXX (11자리) / 01X-XXX-XXXX (10자리)
+/// 휴대폰 010-XXXX-XXXX (11자리)
 pub const LAYOUT_PHONE_11: u32 = bits(&[3, 7]);
-pub const LAYOUT_PHONE_10: u32 = bits(&[3, 6]);
 /// 주민·외국인 YYMMDD-NNNNNNN
 pub const LAYOUT_RRN: u32 = bits(&[6]);
 /// 카드: 길이별 허용 경계 — 16 4-4-4-4 / 17~19 4-4-4-4-n / 15 아멕스 4-6-5 / 14 다이너스 4-6-4 / 13 은 붙여 쓰기만
@@ -195,12 +227,7 @@ pub fn card_layout(groups: &[usize]) -> bool {
 
 /// 묶음 배열이 휴대폰 표기인가
 pub fn phone_layout(groups: &[usize]) -> bool {
-    let b = boundaries(groups);
-    match groups.iter().sum::<usize>() {
-        11 => fits(b, LAYOUT_PHONE_11),
-        10 => fits(b, LAYOUT_PHONE_10),
-        _ => false,
-    }
+    groups.iter().sum::<usize>() == 11 && fits(boundaries(groups), LAYOUT_PHONE_11)
 }
 
 /// 묶음 배열이 주민·외국인번호 표기인가 (예: `00013027665 14` 는 경계가 11 → 아님)
@@ -298,18 +325,50 @@ fn current_year() -> u32 {
     1970 + (secs / 31_556_952) as u32
 }
 
-/// 주민번호 체크섬 (내국인/외국인 공식 모두 허용)
+/// 검증 숫자 정답 행렬: 자리(12) × 숫자(0~9) → 가중치 × 숫자 의 11 나머지.
+/// 앞 12자리를 원-핫(자리마다 숫자 칸 하나)으로 펴면 체크섬은 이 행렬과의 곱 — 자리마다 칸 하나를 읽어 더하면 끝.
+const RRN_W: [[u8; 10]; 12] = {
+    const W: [u8; 12] = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
+    let mut t = [[0u8; 10]; 12];
+    let mut i = 0;
+    while i < 12 {
+        let mut d = 0;
+        while d < 10 {
+            t[i][d] = (W[i] * d as u8) % 11;
+            d += 1;
+        }
+        i += 1;
+    }
+    t
+};
+/// 합의 11 나머지 → 검증 숫자: [내국인 (11 − r) mod 10, 외국인 (13 − r) mod 10]
+const RRN_CHECK: [[u8; 11]; 2] = {
+    let mut t = [[0u8; 11]; 2];
+    let mut r = 0;
+    while r < 11 {
+        t[0][r] = ((11 - r) % 10) as u8;
+        t[1][r] = ((13 - r) % 10) as u8;
+        r += 1;
+    }
+    t
+};
+
+/// 주민·외국인번호 검증 숫자. 공식은 성별 숫자로 정한다 (1~4 내국인, 5~8 외국인 — 둘 다 허용하면 아무 숫자나 20% 가 통과)
 pub fn rrn_checksum(d13: &str) -> bool {
-    const W: [u32; 12] = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
     let b = d13.as_bytes();
-    let sum: u32 = (0..12).map(|i| (b[i] - b'0') as u32 * W[i]).sum();
-    let last = (b[12] - b'0') as u32;
-    (11 - sum % 11) % 10 == last || (13 - sum % 11) % 10 == last
+    if b.len() != 13 || !b.iter().all(u8::is_ascii_digit) {
+        return false;
+    }
+    let sum: usize = (0..12).map(|i| RRN_W[i][(b[i] - b'0') as usize] as usize).sum();
+    let foreign = (b'5'..=b'8').contains(&b[6]) as usize;
+    RRN_CHECK[foreign][sum % 11] == b[12] - b'0'
 }
 
 /// 앞 6자리(YYMMDD) + 뒤 7자리 검사.
 /// 구분자(-)가 없으면 오탐 방지를 위해 체크섬까지 요구한다. (구분자가 `-` 가 아니면 호출부에서 검토필요로 표시)
-/// (2020.10 이후 발급 번호는 체크섬이 없으므로 구분자가 있으면 날짜·성별만 본다)
+/// 2020.10 이후 발급 번호는 뒷자리가 임의라 체크섬이 없다 → 구분자가 있으면 날짜·성별만 보고,
+/// 구분자가 없으면서 생년월이 2020년 10월 이후면 검증할 방법이 없어 번호로 보지 않는다
+/// (날짜로 시작하는 문서·주문번호 2507224910019 같은 숫자가 우연히 체크섬을 통과하던 오탐)
 pub fn rrn_kind(front6: &str, back7: &str, has_sep: bool) -> Option<InfoType> {
     let (f, k) = (front6.as_bytes(), back7.as_bytes());
     if f.len() != 6 || k.is_empty() || !f.iter().all(u8::is_ascii_digit) || !k[0].is_ascii_digit() {
@@ -332,8 +391,11 @@ pub fn rrn_kind(front6: &str, back7: &str, has_sep: bool) -> Option<InfoType> {
     if dd >= 32 || (date_table()[CENTURY[g]][yymm] >> dd) & 1 == 0 {
         return None;
     }
-    if !has_sep && !rrn_checksum(&format!("{front6}{back7}")) {
-        return None;
+    if !has_sep {
+        let birth = (1800 + 100 * CENTURY[g] + n(0) * 10 + n(1), n(2) * 10 + n(3));
+        if birth >= (2020, 10) || !rrn_checksum(&format!("{front6}{back7}")) {
+            return None;
+        }
     }
     Some(if (5..=8).contains(&g) { InfoType::Frn } else { InfoType::Rrn })
 }
@@ -439,6 +501,8 @@ pub fn is_code_expr(v: &str, quoted: bool) -> bool {
     }
     l.starts_with('$') || l.starts_with('%') || l.starts_with('{') || l.starts_with('[') || l.contains('(')
         || l.ends_with(')')
+        // 첨자 접근 (request.form['csrf_token'] 의 따옴표 앞까지)
+        || l.ends_with('[')
         // a.b.c 형태의 속성 접근
         || (l.contains('.') && l.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphabetic() || c == '_')))
 }
@@ -468,8 +532,18 @@ mod tests {
         if !(1..=12).contains(&mm) || dd == 0 || dd > days_in_month(year, mm) {
             return None;
         }
-        if !has_sep && !rrn_checksum(&format!("{front6}{back7}")) {
-            return None;
+        if !has_sep {
+            if (year, mm) >= (2020, 10) {
+                return None;
+            }
+            // 기준 공식: 성별로 내국인/외국인 공식 하나만
+            const W: [u32; 12] = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
+            let d: Vec<u32> = format!("{front6}{back7}").bytes().map(|x| (x - b'0') as u32).collect();
+            let sum: u32 = (0..12).map(|i| d[i] * W[i]).sum();
+            let want = if (5..=8).contains(&g) { (13 - sum % 11) % 10 } else { (11 - sum % 11) % 10 };
+            if want != d[12] {
+                return None;
+            }
         }
         Some(if (5..=8).contains(&g) { InfoType::Frn } else { InfoType::Rrn })
     }
@@ -509,9 +583,11 @@ mod tests {
     #[test]
     fn mobile_rules() {
         assert!(valid_mobile("010", "1111", "2222"));
-        assert!(!valid_mobile("019", "0111", "2222"));
+        assert!(!valid_mobile("010", "0111", "2222"));
         assert!(!valid_mobile("010", "111", "2222"));
-        assert!(valid_mobile("011", "111", "2222"));
+        // 010 만 검사
+        assert!(!valid_mobile("011", "111", "2222"));
+        assert!(!valid_mobile("019", "1111", "2222"));
         assert!(!valid_mobile("015", "1111", "2222"));
     }
 

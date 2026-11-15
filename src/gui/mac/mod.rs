@@ -88,6 +88,8 @@ pub struct State {
     last_view: Option<Instant>,
     timer: Option<Retained<NSTimer>>,
     res: results::ResState,
+    /// 검출 결과에서 사용자가 제외한 값·형식
+    excl: results::Excl,
     tree: forensic::TreeState,
     prev_recs: Vec<(String, String, String)>,
     ext: ext_window::ExtState,
@@ -234,6 +236,36 @@ define_class!(
         #[unsafe(method(resCopy:))]
         fn res_copy(&self, _s: Option<&AnyObject>) {
             results::copy();
+        }
+        #[unsafe(method(resCheck:))]
+        fn res_check(&self, s: &NSButton) {
+            results::toggle(s);
+        }
+        #[unsafe(method(resExclude:))]
+        fn res_exclude(&self, _s: Option<&AnyObject>) {
+            results::exclude();
+        }
+        #[unsafe(method(resExcludeFormat:))]
+        fn res_exclude_format(&self, _s: Option<&AnyObject>) {
+            results::exclude_format();
+        }
+        #[unsafe(method(resInclude:))]
+        fn res_include(&self, _s: Option<&AnyObject>) {
+            results::include();
+        }
+        #[unsafe(method(resClearExcl:))]
+        fn res_clear_excl(&self, _s: Option<&AnyObject>) {
+            results::clear_excl();
+        }
+        #[unsafe(method(resDoubleClick:))]
+        fn res_double_click(&self, _s: Option<&AnyObject>) {
+            results::double_click();
+        }
+        #[unsafe(method(resRescan:))]
+        fn res_rescan(&self, _s: Option<&AnyObject>) {
+            if !running() {
+                start();
+            }
         }
 
         // ── 파일 분석 ──
@@ -823,10 +855,14 @@ fn finished_path(report: bool) -> Option<PathBuf> {
 
 fn start() {
     let s = settings();
-    let job = match s.job() {
+    let mut job = match s.job() {
         Ok(j) => j,
         Err(e) => return alert(&e),
     };
+    // 검출 결과에서 제외한 값·형식은 엔진이 아예 검출하지 않는다
+    let (values, formats) = st(|s| (s.excl.values.clone(), s.excl.formats.clone()));
+    job.opts.excluded = values;
+    job.opts.excluded_formats = formats;
     let root = std::path::absolute(&job.input).unwrap_or(job.input.clone());
     let mut scan = Scan::new(root);
     scan.log.push(format!("검사 시작: {}", job.input.display()));
@@ -839,6 +875,10 @@ fn start() {
         if job.opts.exts.scan_unknown { " + 목록 외 확장자" } else { "" },
         job.opts.custom.len()
     ));
+    if !job.opts.excluded.is_empty() || !job.opts.excluded_formats.is_empty() {
+        scan.log.push(format!("제외한 값 {}개·형식 {}개는 검출·치환하지 않습니다", job.opts.excluded.len(), job.opts.excluded_formats.len()));
+    }
+    let applied = (job.opts.excluded.clone(), job.opts.excluded_formats.clone());
     let h = match worker::spawn(&job) {
         Ok(h) => h,
         Err(e) => return alert(&e),
@@ -851,6 +891,7 @@ fn start() {
         s.job = Some(h);
         s.stopping = false;
         s.scan = Some(scan);
+        s.excl.applied = applied;
         s.log_shown = 0;
         s.last_view = None;
         s.timer = Some(timer);
@@ -913,6 +954,7 @@ fn set_running(on: bool) {
     u.report_btn.setEnabled(done);
     u.output_btn.setEnabled(!on && finished_path(false).is_some());
     options_changed();
+    results::refresh_excl();
     if u.ext.window.isVisible() {
         ext_window::refresh();
     }

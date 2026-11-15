@@ -78,6 +78,12 @@ fn gate(class: usize, c: &Candidate) -> Option<InfoType> {
                 return None;
             }
             let o = features::quad(c)?;
+            // 기호가 섞인 표기(1 0 0 : 1)는 하나의 규칙으로 복원할 수 없다 — 같은 규칙을 따르는 레코드 묶음만 예외
+            // (프로그램 변형 88^11^25*1,88&11$25*1: 레코드마다 자리별 기호가 같거나 작은 기호 집합)
+            let regular = dict::uniform_sep(&c.seps).is_some() || (c.rec.records >= 2 && (c.rec.same_pattern || c.rec.small_alphabet));
+            if !regular {
+                return None;
+            }
             // 루프백·문서용 예시·멀티캐스트·예약 대역은 사람(장비)을 식별하지 않음
             let usable = !ipdict::info(&o).non_host && !intuition::unusable(&o);
             (dict::valid_ipv4(&ip) && !dict::ipv4_is_trivial(&ip) && usable).then_some(InfoType::Ip)
@@ -197,7 +203,8 @@ pub fn scan_candidates(text: &str, cands: Vec<features::Candidate>, opts: &Optio
     }
     for j in judge_candidates(text, cands, true) {
         let Some(kind) = j.kind else { continue };
-        if !opts.is_on(&kind) {
+        // 기호가 바뀐 IP 는 IP주소(심층)을 켰을 때만 (IP주소만 켜면 점 표기만 검사)
+        if !opts.is_on(&kind) || (kind == InfoType::Ip && !opts.ip_deep()) {
             continue;
         }
         let cls = match kind {
@@ -233,7 +240,8 @@ mod tests {
             "010", "9999", "1234", "0109999-1234", "192-168-0-1", "10_20_30_40", "4111", "1111", "-", "_", "/", " ", ".", "881111",
             "1234567", "서버", "연락처 ", "카드 ", "주민 ", "2024", "10", "26", "\n", "ip=", "(010)", "12", "255", "7",
         ];
-        let o = Options::default();
+        let mut o = Options::default();
+        o.enabled.insert(InfoType::IpDeep);
         let mut total = 0;
         for _ in 0..3000 {
             let n = 5 + rnd(30);

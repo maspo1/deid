@@ -32,11 +32,13 @@ pub struct Features {
     pub code_expr: bool,
     /// 따옴표 없는 짧은 영문 식별자 (변수명일 가능성)
     pub bare_identifier: bool,
+    /// 기계가 만든 값처럼 보임 (16자 이상, 영문·숫자 섞임, 높은 엔트로피 — hex·base64·UUID 세션 ID)
+    pub token_like: bool,
 }
 
 impl Features {
     /// XGBoost 학습/추론용 수치 벡터 (열 순서 고정)
-    pub fn to_vec(&self) -> [f32; 11] {
+    pub fn to_vec(&self) -> [f32; 12] {
         let b = |x: bool| if x { 1.0 } else { 0.0 };
         [
             self.key_strength,
@@ -50,6 +52,7 @@ impl Features {
             b(self.placeholder),
             b(self.code_expr),
             b(self.bare_identifier),
+            b(self.token_like),
         ]
     }
 }
@@ -71,8 +74,12 @@ impl ContextModel for LogisticBaseline {
         if f.http_ctx {
             z += 1.0;
         }
-        if f.needs_http && !f.http_ctx {
+        // 세션·쿠키 키는 HTTP 맥락에서만 의미가 있지만, 값이 기계가 만든 토큰이면 로그·설정 파일이어도 세션 값이다
+        if f.needs_http && !f.http_ctx && !f.token_like {
             z -= 2.0;
+        }
+        if f.token_like {
+            z += 0.5;
         }
         if f.value_len >= 8 {
             z += 0.6;
@@ -116,6 +123,8 @@ pub struct KeyClass {
     pub strength: f32,
     pub needs_http: bool,
     pub negative: bool,
+    /// 뜻이 넓은 키(sig 등)는 값이 기계가 만든 토큰일 때만
+    pub needs_token: bool,
 }
 
 /// 카멜/스네이크/케밥 표기를 소문자 토큰으로 분해
@@ -152,43 +161,73 @@ const NEGATIVE_TOKENS: &[&str] = &[
     "algorithm", "algo", "method", "duration", "interval", "limit", "version", "scope", "provider",
 ];
 
+/// 한글 키의 부정어 (세션 만료 시간, 인증 방식, 암호화 …)
+const NEGATIVE_KO: &[&str] = &["만료", "시간", "방식", "여부", "횟수", "정책", "길이", "유형", "종류", "암호화", "설정", "기간"];
+
+/// 이름만으로 HTTP 세션 쿠키인 키 (맥락 없이도 세션 값)
+const SESSION_COOKIE_NAMES: &[&str] =
+    &["jsessionid", "phpsessid", "asp.net_sessionid", "connect.sid", "laravel_session", "ci_session", "_session_id", "aspsessionid"];
+
 pub fn classify_key(key: &str) -> Option<KeyClass> {
     let k = key.to_lowercase();
     let toks = key_tokens(key);
     let has = |t: &str| toks.iter().any(|x| x == t);
-    let negative = toks.iter().any(|t| NEGATIVE_TOKENS.contains(&t.as_str()));
-    let mk = |kind, strength, needs_http| Some(KeyClass { kind, strength, needs_http, negative });
+    let negative = toks.iter().any(|t| NEGATIVE_TOKENS.contains(&t.as_str())) || NEGATIVE_KO.iter().any(|w| k.contains(w));
+    let mk = |kind, strength, needs_http| Some(KeyClass { kind, strength, needs_http, negative, needs_token: false });
 
     if ["password", "passwd", "passphrase", "passcode", "비밀번호", "패스워드"].iter().any(|w| k.contains(w)) {
         return mk(InfoType::Password, 2.5, false);
     }
-    if has("pwd") || has("pass") || has("pw") || has("암호") {
+    if has("pwd") || has("pass") || has("pw") || k.contains("암호") {
         return mk(InfoType::Password, 2.0, false);
     }
-    if ["jsessionid", "phpsessid", "asp.net_sessionid", "sessionid", "session_id", "sessiontoken", "session_token", "sessionkey", "session_key"]
-        .iter()
-        .any(|w| k.contains(w))
-    {
+    if SESSION_COOKIE_NAMES.iter().any(|w| k.contains(w)) {
+        return mk(InfoType::Session, 2.5, false);
+    }
+    if ["sessionid", "session_id", "sessiontoken", "session_token", "sessionkey", "session_key"].iter().any(|w| k.contains(w)) {
         return mk(InfoType::Session, 2.5, true);
     }
-    if has("session") || has("sess") || has("sessid") || has("sid") || has("세션") {
+    if has("session") || has("sess") || has("sessid") || has("sid") || k.contains("세션") {
         return mk(InfoType::Session, 1.8, true);
     }
-    if has("cookie") || has("쿠키") {
+    if has("cookie") || k.contains("쿠키") {
         return mk(InfoType::Cookie, 1.8, true);
     }
-    if ["secret", "apikey", "api_key", "api-key", "accesskey", "access_key", "privatekey", "private_key", "authkey", "auth_key", "credential"]
-        .iter()
-        .any(|w| k.contains(w))
+    if [
+        "secret", "apikey", "api_key", "api-key", "accesskey", "access_key", "privatekey", "private_key", "authkey", "auth_key", "credential",
+        "accountkey", "account_key", "sharedaccesskey", "masterkey", "master_key", "signingkey", "signing_key", "시크릿",
+    ]
+    .iter()
+    .any(|w| k.contains(w))
         || has("token")
         || k.ends_with("token")
+        || has("csrf")
+        || has("xsrf")
+        || k.contains("토큰")
     {
         return mk(InfoType::Session, 2.5, false);
     }
-    if has("auth") || has("authorization") || has("인증키") {
+    if has("auth") || has("authorization") || k.contains("인증") {
         return mk(InfoType::Session, 1.5, false);
     }
+    // 서명(SAS ?sig=, signature=) 은 뜻이 넓어 토큰 모양 값만
+    if has("sig") || has("signature") {
+        return Some(KeyClass { kind: InfoType::Session, strength: 1.5, needs_http: false, negative, needs_token: true });
+    }
     None
+}
+
+/// 기계가 만든 값처럼 보이는가 (세션 ID·API 키): 16자 이상, 공백 없음, 영문 3자·숫자 2자 이상, 엔트로피 3 이상.
+/// URL·경로는 제외 (자격증명이 든 URL 은 `uri_cred` 가 처리), Windows SID(S-1-5-21-…)처럼 숫자뿐인 것도 제외
+pub fn token_like(v: &str) -> bool {
+    let letters = v.chars().filter(|c| c.is_ascii_alphabetic()).count();
+    let digits = v.chars().filter(|c| c.is_ascii_digit()).count();
+    v.len() >= 16
+        && !v.contains("://")
+        && v.chars().all(|c| c.is_ascii_alphanumeric() || "+/=_-.%~*:".contains(c))
+        && letters >= 3
+        && digits >= 2
+        && shannon_entropy(v) >= 3.0
 }
 
 // ───────────────────────────── HTTP 맥락 ─────────────────────────────
@@ -247,6 +286,15 @@ impl CredentialScanner {
             (r"\bAIza[0-9A-Za-z_\-]{35}\b", 0),                                     // Google API Key
             (r"\b(?:sk|rk|pk)_(?:live|test)_[0-9A-Za-z]{16,}\b", 0),                // Stripe
             (r"\bnpm_[A-Za-z0-9]{36}\b", 0),                                        // npm
+            (r"\bhf_[A-Za-z0-9]{34}\b", 0),                                         // Hugging Face
+            (r"\bdckr_pat_[A-Za-z0-9_\-]{20,}", 0),                                 // Docker Hub
+            (r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b", 0),                 // SendGrid
+            (r"\bya29\.[0-9A-Za-z_\-]{20,}", 0),                                    // Google OAuth 액세스 토큰
+            (r"\bGOCSPX-[0-9A-Za-z_\-]{20,}", 0),                                   // Google OAuth 클라이언트 시크릿
+            (r"\b[0-9]{8,10}:AA[0-9A-Za-z_\-]{33}\b", 0),                           // Telegram 봇 토큰
+            // 웹훅 URL 의 비밀 경로 (주소만 알면 누구나 메시지를 보낼 수 있음)
+            (r"hooks\.slack\.com/services/(T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{16,})", 1),
+            (r"discord(?:app)?\.com/api/webhooks/([0-9]{15,}/[A-Za-z0-9_\-]{30,})", 1),
         ];
         CredentialScanner {
             tokens: tokens.iter().map(|(p, g)| (re(p), *g)).collect(),
@@ -257,7 +305,7 @@ impl CredentialScanner {
             bearer: re(r"(?i)\bbearer[ \t]+([A-Za-z0-9\-._~+/]{16,}=*)"),
             aws_secret: re(r"[A-Za-z0-9/+]{40}"),
             kv: re(concat!(
-                r#"(?i)(?P<key>[A-Za-z0-9_.\-]*(?:pass|pwd|pw|secret|token|api[_\-]?key|access[_\-]?key|auth|private[_\-]?key|credential|sess|sid|cookie)[A-Za-z0-9_.\-]*|비밀번호|패스워드|암호|세션|쿠키|인증키)"#,
+                r#"(?i)(?P<key>[A-Za-z0-9_.\-]*(?:pass|pwd|pw|secret|token|api[_\-]?key|access[_\-]?key|account[_\-]?key|master[_\-]?key|signing[_\-]?key|auth|private[_\-]?key|credential|sess|sid|cookie|csrf|xsrf|sig)[A-Za-z0-9_.\-]*|[가-힣]*(?:비밀번호|패스워드|암호|세션|쿠키|인증|토큰|시크릿)[가-힣A-Za-z0-9_]*)"#,
                 r#"["']?[ \t]*(?:=>|:=|->|=|:)[ \t]*"#,
                 r#"(?:"(?P<dq>[^"\r\n]{1,512})"|'(?P<sq>[^'\r\n]{1,512})'|(?P<raw>[^\s"',;<>&)\]}]{1,512}))"#
             )),
@@ -362,6 +410,15 @@ impl CredentialScanner {
             if AUTH_SCHEMES.contains(&v.to_ascii_lowercase().as_str()) || v.contains("-----BEGIN ") {
                 continue;
             }
+            // URL 값은 주소(token_endpoint: https://…) — URL 속 자격증명·웹훅은 다른 규칙이 처리
+            if v.contains("://") {
+                continue;
+            }
+            let tok = token_like(v);
+            // 뜻이 넓은 키(sig)·부정어가 붙은 키(api_key_header, session_timeout)는 값이 기계가 만든 토큰일 때만
+            if (kc.needs_token || kc.negative) && !tok {
+                continue;
+            }
             let f = Features {
                 key_strength: kc.strength,
                 http_ctx: has_http_context(text, key.start(), val.end()),
@@ -374,6 +431,7 @@ impl CredentialScanner {
                 placeholder: dict::is_placeholder(v),
                 code_expr: dict::is_code_expr(v, quoted),
                 bare_identifier: !quoted && v.len() < 12 && v.chars().all(|c| c.is_ascii_alphabetic() || c == '_'),
+                token_like: tok,
             };
             let p = self.model.predict(&f);
             if p >= threshold {
@@ -398,7 +456,8 @@ impl CredentialScanner {
 const CREDENTIAL_SIGNATURES: &[&str] = &[
     "pass", "pw", "secret", "token", "key", "auth", "credential", "sess", "sid", "cookie", "bearer", "비밀번호", "패스워드", "암호",
     "세션", "쿠키", "인증키", "akia", "asia", "agpa", "aida", "aroa", "anpa", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_",
-    "glpat-", "xox", "eyj", "sk-", "aiza", "_live_", "_test_", "npm_", "-----begin ", "://",
+    "glpat-", "xox", "eyj", "sk-", "aiza", "_live_", "_test_", "npm_", "-----begin ", "://", "토큰", "인증", "시크릿", "csrf", "xsrf",
+    "sig", "hf_", "dckr_pat_", "sg.", "ya29.", "gocspx-", ":aa",
 ];
 
 /// 서명이 하나도 없으면 민감정보 정규식은 일치할 수 없다 → 통째로 건너뜀 (거짓 음성 없음).
@@ -467,6 +526,45 @@ mod tests {
         }
         for t in [r#"<hp:p id="12" width="3400"/>"#, "회의 일정은 10월 26일입니다", "1234-5678 x 99"] {
             assert!(!may_contain_credential(t), "{t}");
+        }
+    }
+
+    /// 로그·설정·JSON 에 남은 세션·인증 값 (HTTP 맥락이 없어도 기계가 만든 값이면), 한글 키, 클라우드 키, 웹훅
+    #[test]
+    fn session_values_outside_http() {
+        for (t, v) in [
+            ("2025-11-02 INFO user=kim session=9d2f8e1a7b3c4d5e6f70 login ok", "9d2f8e1a7b3c4d5e6f70"),
+            ("ASP.NET_SessionId=abcdefghijklmnopqrstuvwx", "abcdefghijklmnopqrstuvwx"),
+            ("connect.sid=s%3Aj2kL9mN4pQ7rS1tU.5vW8xY0zA3bC6dE9fG2hI5jK8lM", "s%3Aj2kL9mN4pQ7rS1tU.5vW8xY0zA3bC6dE9fG2hI5jK8lM"),
+            ("세션키: 3fa85f6457174562b3fc2c963f66afa6", "3fa85f6457174562b3fc2c963f66afa6"),
+            ("세션ID: A1B2C3D4E5F6A7B8C9D0E1F2", "A1B2C3D4E5F6A7B8C9D0E1F2"),
+            ("인증토큰=Zx8Qw2Lp9Rt4Vn6Mb1Kc3Hj5", "Zx8Qw2Lp9Rt4Vn6Mb1Kc3Hj5"),
+            ("AccountName=demo;AccountKey=Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3A=;", "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3A="),
+            ("?sig=2Fo7rQ%2BXl4z9dN6vT3kY8mW1pS5hB0cE&se=2025-12-31", "2Fo7rQ%2BXl4z9dN6vT3kY8mW1pS5hB0cE"),
+            ("slack = https://hooks.slack.com/services/T0001/B0002/XXXXabcdEFGH1234ijkl", "T0001/B0002/XXXXabcdEFGH1234ijkl"),
+            ("bot: 1234567890:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ", "1234567890:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"),
+        ] {
+            assert_eq!(found(t), vec![(v.to_string(), InfoType::Session)], "{t}");
+        }
+    }
+
+    /// 세션·인증 이름이 들어 있지만 값이 아닌 것
+    #[test]
+    fn session_lookalikes_are_not_values() {
+        for t in [
+            "csrf_token = request.form['csrf_token']",
+            "token_endpoint: https://oauth2.example.com/token",
+            "api_key_header = \"X-API-Key\"",
+            "인증번호: 123456",
+            "인증서 경로: C:\\certs\\server.pem",
+            "세션 만료 시간: 30분",
+            "\"sig_alg\": \"RS256\"",
+            "signature = sign(payload, key)",
+            "sid: S-1-5-21-3623811015-3361044348-30300820-1013",
+            "refresh_token_expires_in=3600",
+            "max_tokens: 2048",
+        ] {
+            assert!(found(t).is_empty(), "{t}: {:?}", found(t));
         }
     }
 

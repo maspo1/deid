@@ -15,11 +15,15 @@ pub const MASK_CHAR: char = '*';
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum InfoType {
     Phone,
+    /// 국가번호(+)로 시작하는 국제 표기 전화번호 (+82 10-…, +1 …)
+    IntlPhone,
     Card,
     Email,
     Rrn,
     Frn,
     Ip,
+    /// 검사 항목 전용 (검출 결과의 타입은 Ip): 점 대신 다른 기호를 쓴 IP 를 표 검사·학습 모델로 찾는다
+    IpDeep,
     Mac,
     Password,
     Cookie,
@@ -30,13 +34,15 @@ pub enum InfoType {
 
 impl InfoType {
     /// 내장 타입 전체 (CLI 토글용 키 순서)
-    pub const BUILTIN: [InfoType; 11] = [
+    pub const BUILTIN: [InfoType; 13] = [
         InfoType::Phone,
+        InfoType::IntlPhone,
         InfoType::Card,
         InfoType::Email,
         InfoType::Rrn,
         InfoType::Frn,
         InfoType::Ip,
+        InfoType::IpDeep,
         InfoType::Mac,
         InfoType::Password,
         InfoType::Cookie,
@@ -48,11 +54,13 @@ impl InfoType {
     pub fn label(&self) -> &str {
         match self {
             InfoType::Phone => "핸드폰번호",
+            InfoType::IntlPhone => "해외핸드폰번호",
             InfoType::Card => "카드번호",
             InfoType::Email => "이메일주소",
             InfoType::Rrn => "주민등록번호",
             InfoType::Frn => "외국인등록번호",
             InfoType::Ip => "IP주소",
+            InfoType::IpDeep => "IP주소(심층)",
             InfoType::Mac => "MAC주소",
             InfoType::Password => "패스워드",
             InfoType::Cookie => "쿠키",
@@ -66,11 +74,13 @@ impl InfoType {
     pub fn key(&self) -> &str {
         match self {
             InfoType::Phone => "phone",
+            InfoType::IntlPhone => "intl-phone",
             InfoType::Card => "card",
             InfoType::Email => "email",
             InfoType::Rrn => "rrn",
             InfoType::Frn => "frn",
             InfoType::Ip => "ip",
+            InfoType::IpDeep => "ip-deep",
             InfoType::Mac => "mac",
             InfoType::Password => "password",
             InfoType::Cookie => "cookie",
@@ -90,8 +100,8 @@ impl InfoType {
             InfoType::Custom(_) => 5,
             InfoType::Password | InfoType::Session | InfoType::Cookie => 4,
             InfoType::Rrn | InfoType::Frn | InfoType::Card => 3,
-            InfoType::Email | InfoType::Phone => 2,
-            InfoType::Ip | InfoType::Mac => 1,
+            InfoType::Email | InfoType::Phone | InfoType::IntlPhone => 2,
+            InfoType::Ip | InfoType::IpDeep | InfoType::Mac => 1,
             InfoType::Comment => 0,
         }
     }

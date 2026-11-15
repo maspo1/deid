@@ -104,6 +104,7 @@ mod id {
     pub const C_COPY: u16 = 342;
     pub const C_EXCL: u16 = 343;
     pub const C_INCL: u16 = 344;
+    pub const C_EXCL_FMT: u16 = 345;
     /// 알림 창 버튼
     pub const N_VERIFY: u16 = 360;
     pub const N_CLOSE: u16 = 361;
@@ -174,6 +175,9 @@ pub struct App {
     pending: Option<commit::Pending>,
     /// 사용자가 제외한 값 (프로그램 메모리에만 보관)
     excluded: std::collections::HashSet<String>,
+    /// 사용자가 제외한 형식 (`config::format_key`) — 엔진에 넘겨 다음 검사에서 숫자만 다른 값도 제외.
+    /// 화면 표시는 지금 결과에서 같은 형식인 값을 `excluded` 에 함께 넣어 기존 값 제외 그대로 쓴다
+    excluded_formats: std::collections::HashSet<String>,
     /// 지금 결과를 만든 엔진에 넘긴 제외 목록
     applied: std::collections::HashSet<String>,
     /// 다시 검사하는 동안 들고 있는 이전 결과 (제외 행 이어받기)
@@ -549,6 +553,7 @@ impl App {
             staging: None,
             pending: None,
             excluded: Default::default(),
+            excluded_formats: Default::default(),
             applied: Default::default(),
             carry: None,
             auto_commit: false,
@@ -815,7 +820,7 @@ impl App {
         let (rep, out) = (self.report().filter(|_| !running), self.output_dir().filter(|_| !running));
         ctl::enable(self.c.btn_report, rep.is_some());
         ctl::enable(self.c.btn_out, out.is_some());
-        for (mid, on) in [(id::M_REPORT, rep.is_some()), (id::M_OUTDIR, out.is_some()), (id::M_OPEN, !running), (id::M_CLEAR_EXCL, !running && !self.excluded.is_empty())] {
+        for (mid, on) in [(id::M_REPORT, rep.is_some()), (id::M_OUTDIR, out.is_some()), (id::M_OPEN, !running), (id::M_CLEAR_EXCL, !running && !(self.excluded.is_empty() && self.excluded_formats.is_empty()))] {
             unsafe {
                 let _ = EnableMenuItem(self.c.menu, mid as u32, if on { MF_ENABLED } else { MF_GRAYED });
             }
@@ -864,9 +869,15 @@ impl App {
         let mut job = job;
         let root = std::path::absolute(&job.input).unwrap_or(job.input.clone());
         // 다른 폴더를 검사하면 이전 폴더에서 제외해 둔 값은 잊는다 (정보가 다를 수 있음)
-        let forgot = if self.excl_root.as_ref().is_some_and(|r| *r != root) { std::mem::take(&mut self.excluded).len() } else { 0 };
+        let forgot = if self.excl_root.as_ref().is_some_and(|r| *r != root) {
+            self.excluded_formats.clear();
+            std::mem::take(&mut self.excluded).len()
+        } else {
+            0
+        };
         self.excl_root = Some(root.clone());
         job.opts.excluded = self.excluded.clone();
+        job.opts.excluded_formats = self.excluded_formats.clone();
         // 엔진은 임시 폴더에 쓰고, 출력 폴더는 승인할 때만 바뀐다
         let target = match &job.output {
             Some(o) => std::path::absolute(o).unwrap_or(o.clone()),
@@ -898,6 +909,7 @@ impl App {
         let mut opts = last.opts.clone();
         opts.depth = depth;
         opts.excluded = self.excluded.clone(); // 사용자가 일부러 남긴 값은 재검사에서도 그대로
+        opts.excluded_formats = self.excluded_formats.clone();
         let aside = commit::set_aside_report(&input);
         let staging = commit::staging_for(&done);
         let job = crate::ipc::Job { input: input.clone(), output: Some(staging.clone()), opts };
@@ -1064,6 +1076,7 @@ impl App {
         }
         let (Some(p), Some(mut job)) = (self.pending.take(), self.last_job.take()) else { return self.approve() };
         job.opts.excluded = self.excluded.clone();
+        job.opts.excluded_formats = self.excluded_formats.clone();
         self.launch(job, p, true);
         false
     }
@@ -1086,7 +1099,26 @@ impl App {
             return;
         }
         exclude::toggle(&mut self.excluded, vals);
+        let back: Vec<String> = vals.iter().filter(|v| !self.excluded.contains(*v)).cloned().collect();
+        self.drop_formats(&back);
         self.exclusion_changed();
+    }
+
+    /// 되살린 값의 형식 제외도 푼다 (형식이 남아 있으면 다시 검사할 때 또 제외되므로)
+    fn drop_formats(&mut self, vals: &[String]) {
+        let Some(scan) = &self.scan else { return };
+        for r in scan.all_records().filter(|r| vals.contains(&r.original)) {
+            self.excluded_formats.remove(&crate::config::format_key(r.base(), &r.original));
+        }
+    }
+
+    /// 이 형식은 제외: 고른 값들의 형식을 기억하고, 지금 결과에서 같은 형식인 값을 모두 제외
+    fn exclude_formats(&mut self, vals: &[String]) {
+        let Some(scan) = &self.scan else { return };
+        let key = |r: &crate::ipc::Rec| crate::config::format_key(r.base(), &r.original);
+        self.excluded_formats.extend(scan.all_records().filter(|r| vals.contains(&r.original)).map(key));
+        let same: Vec<String> = scan.all_records().filter(|r| self.excluded_formats.contains(&key(r))).map(|r| r.original.clone()).collect();
+        self.excluded.extend(same);
     }
 
     /// 우클릭 메뉴: 제외/제외 취소 항목 (검토 대기 중에만)
@@ -1096,6 +1128,7 @@ impl App {
             if vals.iter().any(|v| !self.excluded.contains(v)) {
                 m.push((id::C_EXCL, "제외 — 치환하지 않음 (같은 값 모두)"));
             }
+            m.push((id::C_EXCL_FMT, "이 형식은 제외 — 숫자만 다른 값 모두"));
             if vals.iter().any(|v| self.excluded.contains(v)) {
                 m.push((id::C_INCL, "제외 취소 — 다시 치환"));
             }
@@ -1390,6 +1423,7 @@ impl App {
             id::M_ABOUT => self.acts.push(Act::OpenAbout),
             id::M_CLEAR_EXCL => {
                 self.excluded.clear();
+                self.excluded_formats.clear();
                 self.exclusion_changed();
                 self.refresh();
             }
@@ -1480,6 +1514,15 @@ impl App {
         if cmd == id::C_EXCL || cmd == id::C_INCL {
             let vals = std::mem::take(&mut self.ctx_values);
             exclude::set_all(&mut self.excluded, &vals, cmd == id::C_EXCL);
+            if cmd == id::C_INCL {
+                self.drop_formats(&vals);
+            }
+            self.exclusion_changed();
+            return;
+        }
+        if cmd == id::C_EXCL_FMT {
+            let vals = std::mem::take(&mut self.ctx_values);
+            self.exclude_formats(&vals);
             self.exclusion_changed();
             return;
         }

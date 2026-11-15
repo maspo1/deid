@@ -106,6 +106,9 @@ pub fn encode_job(j: &Job) -> String {
     for v in &o.excluded {
         lines.push(("exclude".into(), v.clone()));
     }
+    for v in &o.excluded_formats {
+        lines.push(("exclude_format".into(), v.clone()));
+    }
     let mut s: String = lines.iter().map(|(k, v)| format!("{k}\t{}\n", esc(v))).collect();
     s.push_str("END\n");
     s
@@ -145,6 +148,9 @@ pub fn decode_job(lines: &[String]) -> Result<Job, String> {
             "pattern" => o.add_custom(&v)?,
             "exclude" => {
                 o.excluded.insert(v);
+            }
+            "exclude_format" => {
+                o.excluded_formats.insert(v);
             }
             _ => {} // 이후 버전의 키는 무시
         }
@@ -457,6 +463,8 @@ mod tests {
         o.enabled.remove(&InfoType::Comment);
         o.excluded.insert("010-1234-5678".into());
         o.excluded.insert("탭\t포함".into());
+        o.excluded_formats.insert(crate::config::format_key(InfoType::Ip.label(), "1 0 0 : 1"));
+        o.enabled.insert(InfoType::IpDeep);
         let j = Job { input: "C:\\a\\애플".into(), output: None, opts: o.clone() };
         let text = encode_job(&j);
         let lines: Vec<String> = text.lines().take_while(|l| *l != "END").map(String::from).collect();
@@ -470,6 +478,7 @@ mod tests {
         assert_eq!(d.opts.custom.len(), 1);
         assert_eq!(d.opts.custom[0].regex.as_str(), "EMP-(\\d{6})\t");
         assert_eq!(d.opts.excluded, o.excluded);
+        assert_eq!(d.opts.excluded_formats, o.excluded_formats);
     }
 
     #[test]

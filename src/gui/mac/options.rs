@@ -71,9 +71,9 @@ impl OptionsUi {
         let t: &AnyObject = ctrl.as_ref();
         let changed = sel!(optionChanged:);
 
-        // 검출 항목 (개인정보 5 + 민감정보)
+        // 검출 항목 (개인정보 6 + 민감정보)
         let types: Vec<Retained<NSButton>> = InfoType::BUILTIN.iter().map(|ty| checkbox(ty.label(), t, changed)).collect();
-        let (pi, si) = types.split_at(5);
+        let (pi, si) = types.split_at(6);
         let col = |title: &str, items: &[Retained<NSButton>]| {
             let head = small_label(title);
             let mut v: Vec<&NSView> = vec![&head];

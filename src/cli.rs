@@ -34,7 +34,8 @@ const USAGE: &str = "\
   --known-ext-only        목록에 없는 확장자는 검사하지 않음
   -q, --quiet             파일별 출력 생략
 
-타입 키: phone card email rrn frn ip mac password cookie session comment";
+타입 키: phone intl-phone card email rrn frn ip ip-deep mac password cookie session comment
+  (phone 은 010 만, intl-phone 은 +국가번호 표기. ip 는 점 표기만, ip-deep 은 기호가 바뀐 IP 까지 — 기본 꺼짐)";
 
 struct Args {
     input: Option<PathBuf>,

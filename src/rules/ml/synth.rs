@@ -92,14 +92,9 @@ fn wrap(r: &mut Rng, ctx: &[&str], body: &str) -> (String, usize, usize) {
 
 // ───────── 정답 생성 ─────────
 
+/// 국내 휴대폰은 010-XXXX-XXXX 만 정답
 fn mobile(r: &mut Rng) -> Vec<String> {
-    if r.chance(0.85) {
-        vec!["010".into(), format!("{}", r.range(2, 9)) + &r.digits(3), r.digits(4)]
-    } else {
-        let p = r.pick(&["011", "016", "017", "018", "019"]);
-        let mid = if r.chance(0.5) { format!("{}", r.range(2, 9)) + &r.digits(2) } else { format!("{}", r.range(2, 9)) + &r.digits(3) };
-        vec![p.into(), mid, r.digits(4)]
-    }
+    vec!["010".into(), format!("{}", r.range(2, 9)) + &r.digits(3), r.digits(4)]
 }
 
 fn luhn_complete(prefix: &str, len: usize, r: &mut Rng) -> String {
@@ -443,8 +438,8 @@ fn negative(r: &mut Rng) -> (String, usize, usize) {
             format!("{a}{}{}{}{}", r.pick(SEPS), r.digits_r(3, 4), r.pick(SEPS), r.digits(4))
         }
         8 => {
-            // 휴대폰 모양이지만 잘못된 번호 (019 는 실제 국번이라 넣지 않는다)
-            let p = r.pick(&["012", "013", "014", "015", "010"]);
+            // 휴대폰 모양이지만 검사 대상이 아닌 번호 (010 만 검사: 011·016~019 와 없는 국번, 가운데가 0 인 010)
+            let p = r.pick(&["011", "016", "017", "018", "019", "012", "015", "010", "010"]);
             let mid = if p == "010" { format!("0{}", r.digits(3)) } else { r.digits(4) };
             format!("{p}{}{mid}{}{}", r.pick(SEPS), r.pick(SEPS), r.digits(4))
         }

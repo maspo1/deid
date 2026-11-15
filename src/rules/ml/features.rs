@@ -134,7 +134,7 @@ fn run_regex() -> &'static Regex {
 fn plausible(groups: &[&str]) -> bool {
     let d: usize = groups.iter().map(|g| g.len()).sum();
     let first = groups[0].as_bytes();
-    let phone = (d == 10 || d == 11) && first.starts_with(b"01");
+    let phone = d == 11 && first.starts_with(b"010");
     let ip = groups.len() == 4 && groups.iter().all(|g| g.len() <= 3);
     let card = (13..=19).contains(&d) && groups.len() <= 5 && (b'2'..=b'6').contains(&first[0]);
     let rrn = d == 13 && groups.len() <= 3;
@@ -305,13 +305,9 @@ fn is_date_like(groups: &[String]) -> bool {
     false
 }
 
-/// 숫자열 → (국번, 가운데, 끝) 으로 휴대폰 해석
+/// 숫자열 → (국번, 가운데, 끝) 으로 휴대폰 해석 (010-XXXX-XXXX, 11자리만)
 pub fn mobile_parts(d: &str) -> Option<(&str, &str, &str)> {
-    match d.len() {
-        11 => Some((&d[..3], &d[3..7], &d[7..])),
-        10 => Some((&d[..3], &d[3..6], &d[6..])),
-        _ => None,
-    }
+    (d.len() == 11).then(|| (&d[..3], &d[3..7], &d[7..]))
 }
 
 pub fn ip_string(c: &Candidate) -> Option<String> {
