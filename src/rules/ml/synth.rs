@@ -4,13 +4,15 @@
 //! * 구분자 치환: `-` → `.`, `_`, `/`, `:`, `,`, `|`, `~`, `*`, `#`, 공백, `--`, ` - ` …
 //! * 구분자 누락/혼합: `0109999-1234`, `010.9999_1234`
 //! * 괄호: `(010)9999-1234`
-//! 함정(정답 없음): 날짜, 시각, 버전, 금액, 표 숫자, 계좌·사업자·주문번호, ISBN, 일반전화, 좌표, 잘못된 번호 …
+//! 함정(정답 없음): 날짜, 시각, 버전, 금액, 표 숫자, 계좌·사업자·주문번호, ISBN, 일반전화, 좌표, 잘못된 번호,
+//! 쪽 범위 목록, PDF 좌표, 쉼표 숫자표, 값 변화 화살표, ID+수량, 파일명 …
 //!
 //! 각 표본은 실제 탐지와 같은 `features::candidates` 로 후보를 뽑아 특징을 만든다.
 //! 정답 위치의 후보 = 정답 클래스, 같은 줄의 다른 후보 = none.
 
 use super::features::{self, C_CARD, C_IP, C_NONE, C_PHONE, C_RRN};
 use super::{gbdt, intuition, ipdict};
+use crate::rules::dict;
 
 /// 결정적 난수 (xorshift64*)
 pub struct Rng(u64);
@@ -48,7 +50,7 @@ impl Rng {
 
 const SEPS: &[&str] = &[
     "-", "-", "-", ".", " ", "_", "/", ":", ",", "|", "~", "*", "#", "+", "=", "\\", "--", " - ", ". ", "·", ";", "^", "'", "..",
-    ")", "-_", " / ",
+    ")", "-_", " / ", "->", " -> ", "→",
 ];
 
 /// 묶음을 변형 구분자로 이어 붙인다. (일부 구분자 누락·혼합 포함)
@@ -177,8 +179,11 @@ fn positive(r: &mut Rng) -> (String, usize, usize, usize) {
             let (t, s, e) = wrap(r, ctx, &body);
             let inf = ipdict::info(&o);
             // 사람의 판단: 맥락이 없어도 흔한 사설망·잘 알려진 서버는 IP 로 읽힌다.
-            // 맥락 없는 일반 공인 대역은 다른 해석(코드·번호)의 여지가 있어 애매 (60%)
-            let label = if with_ctx || inf.common_private || inf.well_known || r.chance(0.6) { C_IP } else { C_NONE };
+            // 구분자가 한 규칙(아스키 코드 동일)이면 프로그램으로 바꾼 것이라 복원 가능 → IP.
+            // 그 밖에 맥락 없는 일반 공인 대역은 다른 해석(코드·번호)의 여지가 있어 애매 (60%)
+            let seps: Vec<&str> = body.split(|ch: char| ch.is_ascii_digit()).filter(|x| !x.is_empty()).collect();
+            let regular = seps.len() == 3 && dict::uniform_sep(&seps).is_some();
+            let label = if with_ctx || inf.common_private || inf.well_known || regular || r.chance(0.6) { C_IP } else { C_NONE };
             (t, s, e, label)
         }
         7..=8 => {
@@ -190,7 +195,9 @@ fn positive(r: &mut Rng) -> (String, usize, usize, usize) {
         }
         _ => {
             let (f, b) = rrn(r, true);
-            let body = format!("{f}{}{b}", r.pick(SEPS));
+            // 의도적으로 구분자를 뺀 표기도 학습 (맥락으로 맞춰야 함)
+            let sep = if r.chance(0.15) { "" } else { r.pick(SEPS) };
+            let body = format!("{f}{sep}{b}");
             let (t, s, e) = wrap(r, CTX_RRN, &body);
             (t, s, e, C_RRN)
         }
@@ -203,8 +210,177 @@ const CTX_MONEY: &[&str] = &["금액 ", "price: ", "$", "₩", "합계 ", "total
 const CTX_TABLE: &[&str] = &["", "rgb(", "color ", "mask ", "size ", "좌표 ", "lat/lng ", "<td>", "| "];
 const CTX_ID: &[&str] = &["계좌 ", "account: ", "주문번호 ", "order=", "serial ", "사업자번호 ", "ISBN ", "송장 ", "", "모델 "];
 
+/// 프로그램 변형에 쓰이는 기호 (레코드 구분자 `,` `;` `|` `/` 공백 `[]` 와 겹치지 않음)
+const PROG_ALPHA: &[&str] = &["^", "*", "&", "$", "#", "@", "~", "!", "%", "+", "=", "-", "_", ":", "."];
+
+/// 프로그램으로 변형한 레코드 묶음 한 줄 → (줄, [(시작, 끝, 클래스)])
+/// 레코드는 구분자로 잇고(`,` `;` `|` 공백 `[]` …), 레코드 안은 하나의 규칙으로 바꾼다:
+/// 같은 기호 / 자리별 고정 기호 / 작은 기호 집합에서 무작위 (88^11^25*1,88&11$25*1)
+fn records_line(r: &mut Rng) -> (String, Vec<(usize, usize, usize)>) {
+    let rule = r.below(3);
+    let uni = r.pick(PROG_ALPHA);
+    let fixed: Vec<&str> = (0..3).map(|_| r.pick(PROG_ALPHA)).collect();
+    let set: Vec<&str> = (0..2 + r.below(3)).map(|_| r.pick(PROG_ALPHA)).collect();
+    let delim = r.pick(&[",", ", ", ";", "|", " ", "\t", "/", "[]"]);
+    let phones = r.chance(0.25);
+    let ctx: &[&str] = match r.below(3) {
+        0 => CTX_IP,
+        1 => CTX_NEUTRAL,
+        _ => &[""],
+    };
+    let mut line = r.pick(ctx).to_string();
+    let mut spans = Vec::new();
+    for i in 0..2 + r.below(5) {
+        if i > 0 && delim != "[]" {
+            line.push_str(delim);
+        }
+        let groups: Vec<String> = if phones {
+            mobile(r)
+        } else {
+            let o = loop {
+                let o = ipdict::sample_real(r);
+                if o[0] != 0 && o[3] != 0 {
+                    break o;
+                }
+            };
+            o.iter().map(|v| v.to_string()).collect()
+        };
+        let mut rec = groups[0].clone();
+        for (k, g) in groups[1..].iter().enumerate() {
+            rec.push_str(match rule {
+                0 => uni,
+                1 => fixed[k],
+                _ => r.pick(&set),
+            });
+            rec.push_str(g);
+        }
+        if delim == "[]" {
+            line.push('[');
+        }
+        let s = line.len();
+        line.push_str(&rec);
+        spans.push((s, line.len(), if phones { C_PHONE } else { C_IP }));
+        if delim == "[]" {
+            line.push(']');
+        }
+    }
+    (line, spans)
+}
+
+fn records_doc(r: &mut Rng, d: &mut Doc) {
+    for _ in 0..1 + r.below(2) {
+        let (line, spans) = records_line(r);
+        let base = d.begin_line();
+        d.text.push_str(&line);
+        for (s, e, c) in spans {
+            d.mark(base, &line, s, e, c);
+        }
+    }
+}
+
+/// 하나의 규칙으로 떼어낼 수 없는 숫자 덩어리 (21.0.88.11.25.1.7, 3^4*55-12^9*200-1)
+fn junk_blob(r: &mut Rng) -> String {
+    let mut s = r.range(0, 255).to_string();
+    for _ in 1..5 + r.below(6) {
+        s.push_str(r.pick(&["^", "*", "&", "$", "#", "-", ".", "_", "~", "."]));
+        s.push_str(&if r.chance(0.8) { r.range(0, 255).to_string() } else { r.digits_r(1, 4) });
+    }
+    s
+}
+
+/// 실제 문서에서 IP·카드·주민번호로 잘못 잡혔던 숫자 표기 (정답 없음)
+fn numeric_trap(r: &mut Rng) -> String {
+    match r.below(9) {
+        8 => junk_blob(r),
+        0 => {
+            // 쪽·조항 범위 목록: 28-35, 97-98 / 68, 86, 106-109
+            let mut v = Vec::new();
+            let mut p = r.range(1, 60);
+            for _ in 0..2 + r.below(3) {
+                if r.chance(0.6) {
+                    let q = p + r.range(1, 12);
+                    v.push(format!("{p}{}{q}", r.pick(&["-", "~", "–"])));
+                    p = q + r.range(2, 40);
+                } else {
+                    v.push(p.to_string());
+                    p += r.range(2, 30);
+                }
+            }
+            v.join(r.pick(&[", ", ",", " , "]))
+        }
+        1 => {
+            // 절 번호 범위: 205-1~205-3
+            let a = r.range(1, 300);
+            format!("{a}-{}{}{a}-{}", r.range(1, 9), r.pick(&["~", " ~ ", "-", "~ "]), r.range(1, 9))
+        }
+        2 => {
+            // PDF 좌표 (소수·음수): 511.05667 -625.17676 / 66669 -565.33331 608 -584
+            (0..2 + r.below(3))
+                .map(|_| {
+                    let neg = if r.chance(0.5) { "-" } else { "" };
+                    if r.chance(0.8) {
+                        format!("{neg}{}.{}", r.range(0, 999), r.digits_r(1, 5))
+                    } else {
+                        format!("{neg}{}", r.range(0, 99999))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+        3 => {
+            // 쉼표 숫자표: 44610,1903,2491,855278 / 120712, 0.988423
+            (0..2 + r.below(4))
+                .map(|_| if r.chance(0.2) { format!("0.{}", r.digits(6)) } else { r.range(100, 999_999).to_string() })
+                .collect::<Vec<_>>()
+                .join(r.pick(&[",", ", "]))
+        }
+        4 => {
+            // 값 변화 화살표: 31.6→35.8 / 122.90 -> 3.1
+            let a = format!("{}.{}", r.range(0, 300), r.range(0, 99));
+            let b = format!("{}.{}", r.range(0, 300), r.range(0, 99));
+            format!("{a}{}{b}", r.pick(&["→", " → ", "->", " -> ", "⇒", " > "]))
+        }
+        5 => {
+            // ID + 수량 (표 한 줄): 00013027665 14 / 00013027665 7 8
+            let tail = (0..1 + r.below(2)).map(|_| r.range(1, 99).to_string()).collect::<Vec<_>>().join(" ");
+            format!("000{} {tail}", r.digits(8))
+        }
+        6 => {
+            // 파일명: IMG_20240117_120712.png / image_01_02_03_04.png
+            let ext = r.pick(&[".png", ".jpg", ".JPG", ".pdf", ".hwpx", ".xlsx"]);
+            match r.below(3) {
+                0 => format!(
+                    "IMG_{}{:02}{:02}_{:02}{:02}{:02}{ext}",
+                    r.range(2015, 2030),
+                    r.range(1, 12),
+                    r.range(1, 28),
+                    r.range(0, 23),
+                    r.range(0, 59),
+                    r.range(0, 59)
+                ),
+                1 => format!("image_{:02}_{:02}_{:02}_{:02}{ext}", r.range(0, 99), r.range(0, 99), r.range(0, 99), r.range(0, 99)),
+                _ => format!("scan-{}-{}-{}{ext}", r.digits(4), r.digits(4), r.digits(4)),
+            }
+        }
+        _ => {
+            // 공백 숫자 열: 152.1 145 150 / 129  4  22(21
+            let sp = r.pick(&[" ", "  "]);
+            format!("{}.{}{sp}{}{sp}{}", r.range(1, 255), r.range(0, 9), r.range(1, 255), r.range(1, 255))
+        }
+    }
+}
+
+/// 숫자가 빽빽한 문서 (PDF 좌표·표·쪽 범위) — 줄마다 같은 모양이 반복돼도 유출 로그가 아니다
+fn numeric_doc(r: &mut Rng, d: &mut Doc) {
+    for _ in 0..3 + r.below(6) {
+        let t = numeric_trap(r);
+        d.plain(&t);
+    }
+}
+
 fn negative(r: &mut Rng) -> (String, usize, usize) {
-    let body = match r.below(16) {
+    let body = match r.below(20) {
+        16..=19 => numeric_trap(r),
         14 | 15 => {
             // 날짜 범위 (월.일 ~ 월.일) — 10월 날짜는 10.x 사설 IP 와 모양이 같다
             let m1 = if r.chance(0.4) { 10 } else { r.range(1, 12) };
@@ -267,8 +443,8 @@ fn negative(r: &mut Rng) -> (String, usize, usize) {
             format!("{a}{}{}{}{}", r.pick(SEPS), r.digits_r(3, 4), r.pick(SEPS), r.digits(4))
         }
         8 => {
-            // 휴대폰 모양이지만 잘못된 번호
-            let p = r.pick(&["012", "013", "014", "015", "019", "010"]);
+            // 휴대폰 모양이지만 잘못된 번호 (019 는 실제 국번이라 넣지 않는다)
+            let p = r.pick(&["012", "013", "014", "015", "010"]);
             let mid = if p == "010" { format!("0{}", r.digits(3)) } else { r.digits(4) };
             format!("{p}{}{mid}{}{}", r.pick(SEPS), r.pick(SEPS), r.digits(4))
         }
@@ -309,6 +485,29 @@ fn negative(r: &mut Rng) -> (String, usize, usize) {
     };
     let ctx: &[&str] = if r.chance(0.4) { CTX_ID } else { CTX_NEUTRAL };
     wrap(r, ctx, &body)
+}
+
+/// 평가용 정답 표본 (`examples/eval_ml.rs`): (텍스트, 정답 시작, 끝, 클래스) — 범위는 숫자 경계로 맞춤
+pub fn eval_positive(r: &mut Rng) -> (String, usize, usize, usize) {
+    let (t, s, e, c) = positive(r);
+    let span = &t[s..e];
+    let a = span.find(|c: char| c.is_ascii_digit()).unwrap_or(0);
+    let z = span.rfind(|c: char| c.is_ascii_digit()).map_or(span.len(), |z| z + 1);
+    (t.clone(), s + a, s + z, c)
+}
+
+/// 평가용 레코드 묶음 한 줄
+pub fn eval_records(r: &mut Rng) -> (String, Vec<(usize, usize, usize)>) {
+    records_line(r)
+}
+
+/// 평가용 함정 (정답 없음)
+pub fn eval_negative(r: &mut Rng) -> String {
+    if r.chance(0.5) {
+        numeric_trap(r)
+    } else {
+        negative(r).0
+    }
 }
 
 /// 정답 위치가 표시된 합성 문서
@@ -455,7 +654,16 @@ fn random_quad(r: &mut Rng, d: &mut Doc) {
 
 fn document(r: &mut Rng) -> Doc {
     let mut d = Doc::default();
-    match r.below(100) {
+    match r.below(110) {
+        100..=104 => records_doc(r, &mut d),
+        105..=109 => {
+            for _ in 0..1 + r.below(3) {
+                let t = junk_blob(r);
+                let ctx = if r.chance(0.5) { CTX_IP } else { CTX_NEUTRAL };
+                let (t, s, e) = wrap(r, ctx, &t);
+                d.line(&t, s, e, C_NONE);
+            }
+        }
         0..=34 => {
             let (t, s, e, l) = positive(r);
             d.line(&t, s, e, l);
@@ -467,12 +675,13 @@ fn document(r: &mut Rng) -> Doc {
         35..=52 => leak_log(r, &mut d),
         53..=64 => artificial(r, &mut d),
         65..=73 => random_quad(r, &mut d),
-        74..=89 => {
+        74..=83 => {
             for _ in 0..1 + r.below(3) {
                 let (t, s, e) = negative(r);
                 d.line(&t, s, e, C_NONE);
             }
         }
+        84..=89 => numeric_doc(r, &mut d),
         _ => {
             // 혼합: 정상 표기(점) IP + 변형 로그 + 함정
             let o = ipdict::sample_real(r);
@@ -488,6 +697,37 @@ fn document(r: &mut Rng) -> Doc {
         d.plain(tail);
     }
     d
+}
+
+/// 한 줄짜리 표본 묶음 (정답 + 오답이 반반) — 학습 중 틀린 표본을 골라 다시 넣는 데 쓴다.
+/// 평가(`eval_*`)와 같은 생성기지만 seed 가 달라 같은 문장이 아니다.
+pub fn snippet_dataset(seed: u64, n: usize, nat: &gbdt::Model) -> (Vec<Vec<f32>>, Vec<usize>) {
+    let mut r = Rng::new(seed);
+    let (mut x, mut y) = (Vec::new(), Vec::new());
+    for _ in 0..n {
+        let mut d = Doc::default();
+        match r.below(10) {
+            0..=4 => {
+                let (t, s, e, l) = positive(&mut r);
+                d.line(&t, s, e, l);
+            }
+            5 => {
+                let (t, spans) = records_line(&mut r);
+                d.text = t;
+                d.spans = spans;
+            }
+            6 | 7 => d.plain(&numeric_trap(&mut r)),
+            _ => {
+                let (t, s, e) = negative(&mut r);
+                d.line(&t, s, e, C_NONE);
+            }
+        }
+        for (c, v) in features::doc_features(&d.text, nat) {
+            x.push(v);
+            y.push(d.spans.iter().find(|&&(s, e, _)| s == c.start && e == c.end).map_or(C_NONE, |t| t.2));
+        }
+    }
+    (x, y)
 }
 
 /// 본 모델(2단) 표본 생성 — 문서의 모든 후보에 라벨 (정답 위치와 정확히 같으면 정답 클래스, 아니면 none)

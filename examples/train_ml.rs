@@ -2,6 +2,7 @@
 //!
 //! 1단 자연스러움 모델 (실제 IP 분포 vs 사람이 만든 배열) → src/rules/ml/natural.txt
 //! 2단 본 모델 (변형 번호 + 맥락 + 문서 단위 흔적) → src/rules/ml/model.txt
+//!    학습 → 새 정답·오답 표본을 주입해 틀린 것만 골라 다시 넣고 재학습 (어려운 표본 주입, 모든 클래스)
 //! 각 단계는 학습과 다른 seed 의 데이터로 평가하고, 사람 직관 점검 문장의 판단을 출력한다.
 
 use deid::rules::ml::features::{CLASSES, N_FEATURES};
@@ -66,17 +67,42 @@ fn main() {
 
     // ── 2단: 본 모델 ──
     println!("\n[2단] 본 모델 — 특징 {N_FEATURES}개 (후보 + 자연스러움 + 사전 + 문서 단위 기계적 치환 흔적 + 다의성)");
-    let (x, y) = synth::dataset(1, 40_000, &nat);
+    let (mut x, mut y) = synth::dataset(1, 40_000, &nat);
+    let (sx, sy) = synth::snippet_dataset(3, 40_000, &nat);
+    x.extend(sx);
+    y.extend(sy);
     let (tx, ty) = synth::dataset(2, 10_000, &nat);
     let mut counts = [0usize; 5];
     y.iter().for_each(|&c| counts[c] += 1);
     println!("  학습 표본 {} (클래스별 {:?})", x.len(), counts);
     let p2 = gbdt::Params { rounds: 120, max_depth: 6, eta: 0.2, ..Default::default() };
-    let model = gbdt::fit(&x, &y, CLASSES.len(), &p2, |r, loss| {
-        if r % 20 == 0 {
-            println!("    round {r:>3}  logloss {loss:.4}");
+    let fit = |x: &[Vec<f32>], y: &[usize]| {
+        gbdt::fit(x, y, CLASSES.len(), &p2, |r, loss| {
+            if r % 40 == 0 {
+                println!("    round {r:>3}  logloss {loss:.4}");
+            }
+        })
+    };
+    let mut model = fit(&x, &y);
+    let argmax = |p: &[f32]| p.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
+    // 어려운 표본 주입: 매번 새 seed 의 정답·오답을 만들어 지금 모델이 틀린 것만 학습에 더한다 (2배 가중)
+    for k in 0..3u64 {
+        let (mut px, mut py) = synth::dataset(100 + k, 15_000, &nat);
+        let (sx, sy) = synth::snippet_dataset(200 + k, 40_000, &nat);
+        px.extend(sx);
+        py.extend(sy);
+        let wrong: Vec<usize> = (0..px.len()).filter(|&i| argmax(&model.predict_proba(&px[i])) != py[i]).collect();
+        let mut per = [0usize; 5];
+        wrong.iter().for_each(|&i| per[py[i]] += 1);
+        println!("  주입 {}: 새 표본 {} 중 틀린 것 {} ({:.2}%, 정답 클래스별 {per:?}) → 재학습", k + 1, px.len(), wrong.len(), 100.0 * wrong.len() as f32 / px.len() as f32);
+        for &i in &wrong {
+            for _ in 0..2 {
+                x.push(px[i].clone());
+                y.push(py[i]);
+            }
         }
-    });
+        model = fit(&x, &y);
+    }
     confusion(&model, &tx, &ty, &CLASSES);
     std::fs::write(dir.join("model.txt"), model.to_text()).unwrap();
 
@@ -99,6 +125,31 @@ fn main() {
         "code 12-34-56-78\ncode 23-45-67-89\ncode 34-56-78-90",
         "hp = 0109999-1234, server 192-168-0-1, code 12-34-56-78",
         "login from 211-234-10-5\nlogin from 12-34-56-78\nlogin from 58-120-33-7",
+        // 실제 문서 오답 (정답 없음)
+        "참고 28-35, 97-98",
+        "205-1~205-3",
+        "152.1 145 150",
+        "00013027665 14",
+        "511.05667 -625.17676",
+        "44610,1903,2491,855278",
+        "122.90 -> 3.1",
+        "IMG_20240117_120712.png",
+        // 기호가 바뀌거나 빠진 정보 (맥락으로 맞춰야 함)
+        "서버 IP 122->90->3->1",
+        "연락처 010→1234→5678",
+        "주민번호 8811111234569",
+        // 레코드 묶음 (복원 가능) vs 하나의 규칙으로 떼어낼 수 없는 덩어리
+        "88.11.25.1,14.20.1.3",
+        "88^11^25*1,88&11$25*1",
+        "[88^11^25*1][88&11$25*1]",
+        "88-11-25-1;14-20-1-3;201-33-7-90",
+        "21.0.88.11.25.1.7",
+        "3^4*55-12^9*200-1",
+        // 숫자표 열 구분자로 같은 규칙 (맥락 없음) vs 표 한 줄
+        "215|1|225|123",
+        "no 203 105 180 171",
+        "<td>10 | 43 | 198 | 163",
+        "21,23,53,60",
     ] {
         let nat_ref = &nat;
         let mut parts = Vec::new();

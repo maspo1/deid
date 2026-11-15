@@ -34,6 +34,22 @@ pub(super) fn digit_bounded(text: &str, s: usize, e: usize) -> bool {
     before_ok && after_ok
 }
 
+/// 영문이 바로 붙은 숫자열은 코드·해시(0x0103…, ab0103…x)다. 단 전화 키워드(tel, hp …)가 붙은 경우는 번호.
+pub(super) fn glued_to_code(text: &str, s: usize, e: usize) -> bool {
+    if char_after(text, e).map_or(false, |c| c.is_ascii_alphabetic()) {
+        return true;
+    }
+    let word: String = text[..s].chars().rev().take_while(|c| c.is_ascii_alphabetic()).collect::<Vec<_>>().into_iter().rev().collect();
+    let word = word.to_ascii_lowercase();
+    !word.is_empty() && !["tel", "hp", "phone", "mobile", "cell", "call", "fax", "no"].iter().any(|k| word.ends_with(k))
+}
+
+/// 카드 표기 배열 (구분자 위치 정답 행렬)
+fn card_groups_ok(s: &str) -> bool {
+    let g: Vec<usize> = s.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).map(str::len).collect();
+    dict::card_layout(&g)
+}
+
 /// 구분자 일관성: 숫자가 아닌 문자들이 모두 같은 문자여야 함 (없어도 됨)
 fn uniform_separators(s: &str, expected_groups: usize) -> bool {
     let seps: Vec<char> = s.chars().filter(|c| !c.is_ascii_digit()).collect();
@@ -41,13 +57,13 @@ fn uniform_separators(s: &str, expected_groups: usize) -> bool {
 }
 
 /// 바로 앞 단어가 버전 표기인가 (version, ver, v, build, rev, 버전)
-fn preceded_by_version_word(text: &str, s: usize) -> bool {
+pub(super) fn preceded_by_version_word(text: &str, s: usize) -> bool {
     let back = crate::common::context_window(text, s, s, 24, 0);
-    let back = back.trim_end_matches([' ', ':', '=', '\t', '(', '"', '\'']);
+    let back = back.trim_end_matches([' ', ':', '=', '\t', '(', '"', '\'', '-', '_']);
     let word: String =
         back.chars().rev().take_while(|c| c.is_alphabetic() || *c == '.').collect::<Vec<_>>().into_iter().rev().collect();
     let w = word.trim_end_matches('.');
-    matches!(w, "v" | "ver" | "version" | "build" | "rev" | "revision" | "버전" | "빌드") || w.starts_with("version")
+    matches!(w, "v" | "ver" | "version" | "build" | "rev" | "revision" | "release" | "버전" | "빌드") || w.starts_with("version")
 }
 
 /// 직전 40자 안에 IP 를 암시하는 맥락이 있는가
@@ -92,7 +108,7 @@ impl Patterns {
             if &c[3] != &c[5] {
                 continue; // 구분자 불일치 (010-1234 5678)
             }
-            if !digit_bounded(text, m.start(), m.end()) {
+            if !digit_bounded(text, m.start(), m.end()) || glued_to_code(text, m.start(), m.end()) {
                 continue;
             }
             if dict::valid_mobile(prefix, &c[4], &c[6]) {
@@ -132,13 +148,15 @@ impl Patterns {
         for (re, groups) in [(&self.card, 4usize), (&self.card_amex, 3usize)] {
             for m in re.find_iter(text) {
                 let s = m.as_str();
-                if !uniform_separators(s, groups) || !digit_bounded(text, m.start(), m.end()) {
+                if !uniform_separators(s, groups) || !digit_bounded(text, m.start(), m.end()) || !card_groups_ok(s) {
                     continue;
                 }
                 let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
                 let hit = Hit::new(m.start(), m.end(), InfoType::Card, MaskMode::Alnum);
                 if dict::valid_card(&digits) {
-                    out.push(hit);
+                    // 붙여 쓴 숫자열은 계좌·주문·ID 번호와 겹친다 → 카드 맥락이 없으면 치환 + 검토필요
+                    let bare = s.len() == digits.len();
+                    out.push(if bare && !card_context(text, m.start()) { hit.needs_review() } else { hit });
                 } else if s.len() > digits.len()
                     && (13..=19).contains(&digits.len())
                     && dict::valid_card_iin(&digits)
@@ -171,7 +189,9 @@ impl Patterns {
             }
             let has_sep = !c[2].is_empty();
             if let Some(kind) = dict::rrn_kind(&c[1], &c[3], has_sep) {
-                out.push(Hit::new(m.start(), m.end(), kind, MaskMode::Alnum));
+                // 보통의 표기(YYMMDD-NNNNNNN)가 아니면 의심 → 치환 + 검토필요
+                let hit = Hit::new(m.start(), m.end(), kind, MaskMode::Alnum);
+                out.push(if &c[2] == "-" { hit } else { hit.needs_review() });
             }
         }
     }
@@ -204,12 +224,46 @@ impl Patterns {
     }
 }
 
+/// 점 IP 가 다른 숫자 덩어리에 기호로 붙어 있는가 (`206*203_554$51~126.165.8.187$188.3068`).
+/// 레코드 구분자(, ; | / 공백 괄호 따옴표 =), 포트(:), 다른 IP 와 이은 범위·목록(10.0.0.1~10.0.0.9)은 떼어낼 수 있으므로 아니다.
+fn glued_in_blob(text: &str, s: usize, e: usize) -> bool {
+    const SEP_OK: &str = ",;|/[](){}<>，、\"'=:";
+    let quad = |t: &str| {
+        let g: Vec<&str> = t.split('.').collect();
+        g.len() == 4 && g.iter().all(|x| !x.is_empty() && x.len() <= 3)
+    };
+    let glue = |c: char| !c.is_alphanumeric() && !c.is_whitespace() && !SEP_OK.contains(c);
+    if let Some(c) = char_before(text, s).filter(|&c| glue(c)) {
+        let head = &text[..s - c.len_utf8()];
+        let tok: String = head.chars().rev().take_while(|x| x.is_ascii_digit() || *x == '.').collect::<Vec<_>>().into_iter().rev().collect();
+        if tok.ends_with(|x: char| x.is_ascii_digit()) && !quad(tok.trim_start_matches('.')) {
+            return true;
+        }
+    }
+    if let Some(c) = char_after(text, e).filter(|&c| glue(c)) {
+        let tail = &text[e + c.len_utf8()..];
+        let tok: String = tail.chars().take_while(|x| x.is_ascii_digit() || *x == '.').collect();
+        if tok.starts_with(|x: char| x.is_ascii_digit()) && !quad(tok.trim_end_matches('.')) {
+            return true;
+        }
+    }
+    false
+}
+
 /// 점으로 이어진 숫자열 하나(`text[s..e]`, 4묶음 이상)를 구조 규칙으로 판단 — 정규식 경로와 정답 행렬 경로 공용
 pub(super) fn ipv4_at(text: &str, s: usize, e: usize, out: &mut Vec<Hit>) {
     let before = char_before(text, s);
     let after = char_after(text, e);
     let letter = |c: Option<char>| c.map_or(false, |c| c.is_ascii_alphabetic());
     if letter(before) || letter(after) {
+        return;
+    }
+    // 글자로 끊긴 점 사슬의 뒷부분(21.0.ㅇ.88.11.25.1) — 어디까지가 주소인지 하나의 규칙으로 복원할 수 없다
+    if before == Some('.') && char_before(text, s - 1).map_or(false, |c| c.is_alphabetic()) {
+        return;
+    }
+    // 숫자 덩어리에 기호로 붙은 점 사슬 — 하나의 규칙으로 떼어낼 수 없다
+    if glued_in_blob(text, s, e) {
         return;
     }
     if preceded_by_version_word(text, s) {
@@ -232,6 +286,12 @@ pub(super) fn ipv4_at(text: &str, s: usize, e: usize, out: &mut Vec<Hit>) {
     } else {
         if matches!(groups[0], "0" | "1" | "2") {
             return; // OID (첫 arc 는 0/1/2 만 존재)
+        }
+        // 6묶음 이상이거나 뒤에 `.글자` 가 이어지는 사슬(11.7.8.5.122.90.3.1.7.x)은 절·버전·식별자 번호일 가능성이 크다
+        // → IP 맥락이 있을 때만 검토. 5묶음(33.100.20.1.3)은 잘못 입력한 IP 일 수 있어 그대로 검토
+        let dotted_word = after == Some('.') && char_after(text, e + 1).map_or(false, |c| c.is_alphabetic());
+        if (groups.len() >= 6 || dotted_word) && !ip_context(text, s) {
+            return;
         }
         if groups.windows(4).any(valid) {
             out.push(hit.needs_review());

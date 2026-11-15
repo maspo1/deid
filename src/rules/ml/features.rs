@@ -1,6 +1,6 @@
 //! 변형된 숫자 정보 후보 추출 + 맥락 특징 벡터.
 //!
-//! 후보: 숫자 묶음이 **임의의 기호**(1~3자, 영문·숫자·줄바꿈 제외)로 이어진 덩어리.
+//! 후보: 숫자 묶음이 **임의의 기호**(1~4자, 영문·숫자·줄바꿈 제외)로 이어진 덩어리.
 //! `192-168-0-1`, `0109999-1234`, `010_9999_1234`, `(010)9999-1234`, `4111.1111.1111.1111` …
 //! 덩어리 안의 연속된 묶음(창, window) 단위로 특징을 만든다 — 학습과 추론이 같은 함수를 쓴다.
 //!
@@ -14,8 +14,8 @@ use std::sync::OnceLock;
 
 /// 후보 하나만 보고 만드는 특징 수
 pub const N_BASE: usize = 55;
-/// + 직관·사전·문서 단위 특징
-pub const N_FEATURES: usize = N_BASE + 18;
+/// + 직관·사전·문서 단위 특징 + 레코드 구조 특징 + 구분자 규칙·표 특징
+pub const N_FEATURES: usize = N_BASE + 18 + 6 + 4;
 
 /// 분류 클래스 (소프트맥스 출력 순서)
 pub const CLASSES: [&str; 5] = ["none", "phone", "ip", "card", "rrn"];
@@ -37,6 +37,86 @@ pub struct Candidate {
     pub sep_after: Option<String>,
     /// 같은 덩어리에서 나온 창은 같은 번호
     pub run_id: usize,
+    /// 덩어리 안에서 이 창이 복원 가능한 레코드인가
+    pub rec: Record,
+}
+
+/// 숫자 덩어리 안의 레코드 구조.
+///
+/// 변형 유출은 프로그램으로 하므로 정형화된 규칙을 따른다: 레코드를 구분자(`,` `;` `|` 공백 `[]` …)로 잇고,
+/// 레코드 안은 하나의 규칙(같은 기호 / 자리별 고정 기호 / 작은 기호 집합)으로 바꾼다.
+/// * `88.11.25.1,14.20.1.3`, `88^11^25*1,88&11$25*1`, `[88^11^25*1][88&11$25*1]` → 레코드로 복원 가능
+/// * `21.0.88.11.25.1.7`, `3^4*55-12^9*200-1` → 어디서 끊어도 하나의 규칙으로 복원할 수 없음
+#[derive(Clone, Debug, Default)]
+pub struct Record {
+    /// 덩어리 안에 묻힌 창 (앞이나 뒤에 다른 묶음이 이어짐)
+    pub embedded: bool,
+    /// 묻혔어도 양 끝이 레코드 구분자라 하나의 레코드로 떼어낼 수 있음 (묻히지 않았으면 true)
+    pub recoverable: bool,
+    /// 같은 구분자로 나눈 레코드 수
+    pub records: usize,
+    /// 그중 IP 모양(4묶음, 각 ≤255) 레코드 비율
+    pub ip_share: f32,
+    /// IP 모양 레코드들의 자리별 기호가 모두 같음
+    pub same_pattern: bool,
+    /// 레코드 안 기호가 모두 한 글자이고, 레코드 전체에서 쓰인 기호 종류가 4개 이하 (프로그램 변형 흔적)
+    pub small_alphabet: bool,
+}
+
+/// 레코드 구분자로 쓰이는 기호인가 (공백이 섞인 기호 `: `, ` -> ` 도 필드 구분으로 본다)
+fn record_delim(t: &str) -> bool {
+    !t.is_empty() && (t.chars().any(char::is_whitespace) || t.chars().all(|ch| ",;|/[](){}<>，、".contains(ch)))
+}
+
+fn ip_shaped(groups: &[&str]) -> bool {
+    groups.len() == 4 && groups.iter().all(|g| g.len() <= 3 && g.parse::<u32>().map_or(false, |v| v <= 255))
+}
+
+/// 창 `a..=z` 의 레코드 구조
+fn record_info(groups: &[&str], seps: &[&str], a: usize, z: usize) -> Record {
+    let n = groups.len();
+    let inner = &seps[a..z];
+    let left = (a > 0).then(|| seps[a - 1]);
+    // 끝의 포트(:8080)·대역(/24)은 레코드 경계가 아니다
+    let tail = z + 2 == n && groups[n - 1].len() <= 5 && matches!(seps[z], ":" | "/");
+    let right = (z + 1 < n && !tail).then(|| seps[z]);
+    let embedded = left.is_some() || right.is_some();
+    let delim = match (left, right) {
+        (None, None) => None,
+        (Some(l), Some(r)) if l != r => return Record { embedded, ..Default::default() },
+        (l, r) => l.or(r),
+    };
+    let Some(d) = delim else {
+        return Record { embedded: false, recoverable: true, records: 1, ..Default::default() };
+    };
+    if !record_delim(d) || inner.contains(&d) {
+        return Record { embedded, ..Default::default() };
+    }
+    // 덩어리 전체를 같은 구분자로 나눈 레코드들
+    let mut recs: Vec<(usize, usize)> = Vec::new();
+    let mut st = 0;
+    for (i, s) in seps.iter().enumerate() {
+        if *s == d {
+            recs.push((st, i));
+            st = i + 1;
+        }
+    }
+    recs.push((st, n - 1));
+    let ip_recs: Vec<&(usize, usize)> = recs.iter().filter(|(x, y)| ip_shaped(&groups[*x..=*y])).collect();
+    let pattern = |(x, y): &(usize, usize)| &seps[*x..*y];
+    let same_pattern = ip_recs.len() >= 2 && ip_recs.iter().all(|r| pattern(r) == pattern(ip_recs[0]));
+    let mut alphabet: Vec<&str> = ip_recs.iter().flat_map(|r| pattern(r).iter().copied()).collect();
+    let single = alphabet.iter().all(|s| s.chars().count() == 1);
+    alphabet.sort();
+    alphabet.dedup();
+    Record {
+        embedded,
+        recoverable: true,
+        records: recs.len(),
+        ip_share: ip_recs.len() as f32 / recs.len() as f32,
+        same_pattern,
+        small_alphabet: !ip_recs.is_empty() && single && alphabet.len() <= 4,
+    }
 }
 
 impl Candidate {
@@ -47,7 +127,7 @@ impl Candidate {
 
 fn run_regex() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r"[0-9]+(?:[^\p{L}\p{N}\r\n]{1,3}[0-9]+)*").unwrap())
+    R.get_or_init(|| Regex::new(r"[0-9]+(?:[^\p{L}\p{N}\r\n]{1,4}[0-9]+)*").unwrap())
 }
 
 /// 숫자 개수·묶음 모양이 어떤 클래스든 될 수 있는 창인가 (계산량을 줄이는 사전 거르기)
@@ -108,6 +188,7 @@ pub fn candidates(text: &str) -> Vec<Candidate> {
                     sep_before: (a > 0).then(|| seps[a - 1].to_string()),
                     sep_after: (z + 1 < n).then(|| seps[z].to_string()),
                     run_id,
+                    rec: record_info(&groups, &seps, a, z),
                 });
             }
         }
@@ -170,13 +251,33 @@ fn has_any(s: &str, kws: &Kw) -> bool {
     })
 }
 
+/// 표의 칸 안에 있는가 (`<td>…</td>`, `| … |`, 탭으로 나눈 줄)
+fn table_cell(text: &str, start: usize, end: usize) -> bool {
+    let ls = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let le = text[end..].find('\n').map_or(text.len(), |i| end + i);
+    let (before, after) = (text[ls..start].trim_end(), text[end..le].trim_start());
+    let lower = before.to_ascii_lowercase();
+    before.ends_with('|')
+        || after.starts_with('|')
+        || lower.ends_with("<td>")
+        || lower.ends_with("<th>")
+        || after.to_ascii_lowercase().starts_with("</td")
+        || before.contains('\t')
+        || after.contains('\t')
+}
+
+/// 앞 맥락에 IP 단서가 있는가 (모델 앞단 표 검사용)
+pub(crate) fn ip_context(text: &str, start: usize) -> bool {
+    has_any(&context_window(text, start, start, 40, 0), &KW_IP)
+}
+
 fn digit_density(s: &str) -> f32 {
     let n = s.chars().count().max(1);
     s.chars().filter(|c| c.is_ascii_digit()).count() as f32 / n as f32
 }
 
 /// 월.일 쌍으로 읽히는가 (10.26 / 10.26.~10.31 / 10/26-10/31)
-fn month_day_pairs(groups: &[String]) -> bool {
+pub(crate) fn month_day_pairs(groups: &[String]) -> bool {
     let v: Vec<u32> = groups.iter().map(|g| g.parse().unwrap_or(99)).collect();
     let pair = |m: u32, d: u32| (1..=12).contains(&m) && (1..=31).contains(&d);
     match v.len() {
@@ -421,6 +522,23 @@ pub fn doc_features_keep(
             v.push(ambiguity as f32);
             v.push(doc_ip_kw);
             v.push(doc_phone_kw);
+            // 레코드 구조 (복원 가능성)
+            let r = &c.rec;
+            v.push(b(r.embedded && r.recoverable));
+            v.push(r.records.min(6) as f32);
+            v.push(r.ip_share);
+            v.push(b(r.same_pattern));
+            v.push(b(r.small_alphabet));
+            let wrap = |o: char, cl: char| char_before(text, c.start) == Some(o) && char_after(text, c.end) == Some(cl);
+            v.push(b(wrap('[', ']') || wrap('(', ')') || wrap('{', '}') || wrap('<', '>')));
+            // 구분자 규칙 (아스키 코드 표, 모든 클래스 공통): 한 규칙으로 바꿨는가 / 그 기호가 숫자표 열 구분자인가
+            let rule = dict::uniform_sep(&c.seps);
+            v.push(b(rule.is_some()));
+            v.push(b(rule.map_or(false, |(_, k)| k == dict::SEP_TABLE)));
+            // 오름차순 숫자 열 (쪽·번호 목록: 21,23,53,60 / 42, 58, 60, 64)
+            let nums: Vec<u64> = g.iter().map(|x| x.parse().unwrap_or(u64::MAX)).collect();
+            v.push(b(nums.len() >= 3 && nums.windows(2).all(|w| w[0] < w[1])));
+            v.push(b(table_cell(text, c.start, c.end)));
             debug_assert_eq!(v.len(), N_FEATURES);
             (c.clone(), v)
         })

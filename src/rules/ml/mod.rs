@@ -36,6 +36,9 @@ use std::sync::OnceLock;
 
 /// 이 확률 미만은 버린다 (그 이상 ~ 임계값 미만은 치환 + 검토)
 pub const REVIEW_FLOOR: f32 = 0.5;
+/// 구분자가 한 규칙(아스키 코드 동일)인 후보는 모델이 '정보 아님'을 골라도 정보 클래스 확률이 이 이상이면 치환 + 검토필요.
+/// 학습·평가와 다른 검증 seed 로 정한 값 (함정 오탐 0.05% 이내에서 재현율이 가장 높은 지점)
+pub const REGULAR_FLOOR: f32 = 0.46;
 
 static MODEL_TEXT: &str = include_str!("model.txt");
 static NATURAL_TEXT: &str = include_str!("natural.txt");
@@ -52,13 +55,21 @@ pub fn natural_model() -> &'static gbdt::Model {
     M.get_or_init(|| gbdt::Model::from_text(NATURAL_TEXT).expect("내장 자연스러움 모델 손상"))
 }
 
-/// 2단계: 모델이 고른 클래스가 사전 규칙도 통과하는가 → 정보 타입
+fn lens(c: &Candidate) -> Vec<usize> {
+    c.groups.iter().map(String::len).collect()
+}
+
+/// 2단계: 모델이 고른 클래스가 사전 규칙도 통과하는가 → 정보 타입 (모델 판단 뒤에 거는 알고리즘 검사)
 fn gate(class: usize, c: &Candidate) -> Option<InfoType> {
+    // 숫자 덩어리 안에 묻혔는데 하나의 규칙으로 떼어낼 수 없으면 의미 없는 숫자열 (21.0.88.11.25.1.7)
+    if c.rec.embedded && !c.rec.recoverable {
+        return None;
+    }
     let d = c.digits();
     match class {
         C_PHONE => {
             let (a, m, l) = features::mobile_parts(&d)?;
-            dict::valid_mobile(a, m, l).then_some(InfoType::Phone)
+            (dict::phone_layout(&lens(c)) && dict::valid_mobile(a, m, l)).then_some(InfoType::Phone)
         }
         C_IP => {
             let ip = features::ip_string(c)?;
@@ -71,10 +82,62 @@ fn gate(class: usize, c: &Candidate) -> Option<InfoType> {
             let usable = !ipdict::info(&o).non_host && !intuition::unusable(&o);
             (dict::valid_ipv4(&ip) && !dict::ipv4_is_trivial(&ip) && usable).then_some(InfoType::Ip)
         }
-        C_CARD => dict::valid_card(&d).then_some(InfoType::Card),
-        C_RRN if d.len() == 13 => dict::rrn_kind(&d[..6], &d[6..], c.groups.len() > 1),
+        // 묶음 배열이 실제 카드 표기여야 한다 (250117,250118,2502 처럼 날짜 묶음이 우연히 Luhn 을 통과해도 탈락)
+        C_CARD => (dict::card_layout(&lens(c)) && dict::valid_card(&d)).then_some(InfoType::Card),
+        C_RRN if dict::rrn_layout(&lens(c)) => dict::rrn_kind(&d[..6], &d[6..], c.groups.len() > 1),
         _ => None,
     }
+}
+
+/// 모델 앞단 규칙: 점(.)을 한 가지 규칙으로 일괄 치환한 IP (`103^234^126^56`, `22/222/222/22`, `215|1|225|123`).
+///
+/// 표 검사만으로 판단할 수 있는 것은 여기서 끝내고, 처리한 후보 위치를 돌려준다 (그 후보는 모델로 넘기지 않음).
+/// * 4묶음, 각 1~3자리 0~255 (선행 0 없음) · 덩어리에 묻히지 않음(묻혔으면 레코드로 떼어낼 수 있어야 함)
+/// * 세 구분자의 아스키 코드가 모두 같음 (`dict::uniform_sep`, 양옆 공백 포함 그대로 비교) · 점 하나는 정규식 경로
+/// * 유효한 장비 주소 (사전 규칙, 비호스트·쓸 수 없는 대역 제외)
+/// * 다른 해석이 있으면(월·일 쌍, 시각, 절 범위, 파일명·버전) 모델에 맡김
+/// * 숫자표 열 구분자(공백 탭 , | /)로만 이은 것은 IP 맥락이 있을 때만 확정, 없으면 모델이 판단
+/// * 사람이 만든 배열(12-34-56-78)은 치환 + 검토필요
+pub fn substituted_ips(text: &str, cands: &[Candidate], out: &mut Vec<Hit>) -> Vec<(usize, usize)> {
+    let mut done = Vec::new();
+    for c in cands {
+        let Some(o) = features::quad(c) else { continue };
+        let Some((code, kinds)) = dict::uniform_sep(&c.seps) else { continue };
+        if code == b'.' as u64 || (c.rec.embedded && !c.rec.recoverable) {
+            continue;
+        }
+        let table = kinds == dict::SEP_TABLE;
+        // 단어에 붙은 숫자열은 파일명·식별자 (image_80_59_06_17.pdf, release-30-7-4-8, v1^2^3^4)
+        use crate::common::{char_after, char_before};
+        let alpha = |ch: Option<char>| ch.map_or(false, |x| x.is_alphabetic());
+        let word_before = alpha(char_before(text, c.start))
+            || char_before(text, c.start).map_or(false, |x| matches!(x, '_' | '-' | '.') && alpha(char_before(text, c.start - x.len_utf8())));
+        let word_after = alpha(char_after(text, c.end))
+            || char_after(text, c.end).map_or(false, |x| matches!(x, '.' | '_' | '-') && alpha(char_after(text, c.end + x.len_utf8())));
+        if word_before || word_after || crate::rules::patterns::preceded_by_version_word(text, c.start) {
+            continue;
+        }
+        // 선행 0(06)이 있는 묶음은 IP 표기가 아니다 → 원래 숫자 문자열로 검사
+        let ip = c.groups.join(".");
+        if !dict::valid_ipv4(&ip) || dict::ipv4_is_trivial(&ip) || ipdict::info(&o).non_host || intuition::unusable(&o) {
+            continue;
+        }
+        let time_like = code == b':' as u64 && o.iter().all(|&v| v <= 59);
+        // 절·조항 범위 (145-3-145-7: 같은 번호의 하위 번호 두 개)
+        let section_range = o[0] == o[2] && o[1] < 10 && o[3] < 10;
+        if features::month_day_pairs(&c.groups) || time_like || section_range {
+            continue;
+        }
+        // 숫자표 열 구분자로만 이은 것은 표 한 줄과 겹친다 → IP 맥락이 없으면 모델이 판단
+        if table && !features::ip_context(text, c.start) {
+            continue;
+        }
+        let natural = natural_model().predict_proba(&intuition::natural_features(&o))[1];
+        let hit = Hit::new(c.start, c.end, InfoType::Ip, MaskMode::Alnum);
+        out.push(if natural < 0.3 { hit.needs_review() } else { hit });
+        done.push((c.start, c.end));
+    }
+    done
 }
 
 /// 후보별 판단 결과 (디버깅·테스트용)
@@ -83,6 +146,10 @@ pub struct Judged {
     pub end: usize,
     pub probs: Vec<f32>,
     pub kind: Option<InfoType>,
+    /// 확률과 무관하게 검토필요 (주민·외국인번호인데 구분자가 `-` 가 아님, 한 규칙 구분자라 낮은 문턱으로 채택)
+    pub review: bool,
+    /// 버리는 문턱 (보통 REVIEW_FLOOR, 한 규칙 구분자로 다시 본 것은 REGULAR_FLOOR)
+    pub floor: f32,
 }
 
 pub fn judge(text: &str) -> Vec<Judged> {
@@ -99,7 +166,21 @@ fn judge_candidates(text: &str, cands: Vec<features::Candidate>, only_possible: 
         .map(|(c, x)| {
             let probs = m.predict_proba(&x);
             let (cls, _) = probs.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap();
-            Judged { start: c.start, end: c.end, kind: gate(cls, &c), probs }
+            // 영문이 바로 붙은 번호 모양(0x010…, a010…)은 코드·해시
+            let pass = |k: usize| gate(k, &c).filter(|k| !(*k == InfoType::Phone && crate::rules::patterns::glued_to_code(text, c.start, c.end)));
+            let mut kind = pass(cls);
+            let mut review = matches!(kind, Some(InfoType::Rrn | InfoType::Frn)) && c.seps != ["-"];
+            let mut floor = REVIEW_FLOOR;
+            // 모델이 '정보 아님'을 골랐어도 구분자가 한 규칙이면 복원 여지가 있다 → 가장 높은 정보 클래스를 낮은 문턱으로
+            if kind.is_none() && dict::uniform_sep(&c.seps).is_some() {
+                let best = [C_PHONE, C_IP, C_CARD, C_RRN].into_iter().max_by(|&a, &b| probs[a].total_cmp(&probs[b])).unwrap();
+                if probs[best] >= REGULAR_FLOOR {
+                    kind = pass(best);
+                    review = true;
+                    floor = REGULAR_FLOOR;
+                }
+            }
+            Judged { start: c.start, end: c.end, kind, probs, review, floor }
         })
         .collect()
 }
@@ -126,11 +207,11 @@ pub fn scan_candidates(text: &str, cands: Vec<features::Candidate>, opts: &Optio
             _ => C_RRN,
         };
         let p = j.probs[cls];
-        if p < REVIEW_FLOOR {
+        if p < j.floor {
             continue;
         }
         let hit = Hit::new(j.start, j.end, kind, MaskMode::Alnum).with_score(p);
-        out.push(if p < opts.threshold { hit.needs_review() } else { hit });
+        out.push(if p < opts.threshold || j.review { hit.needs_review() } else { hit });
     }
 }
 
@@ -169,8 +250,8 @@ mod tests {
                     InfoType::Card => C_CARD,
                     _ => C_RRN,
                 };
-                if j.probs[cls] >= REVIEW_FLOOR && o.is_on(&kind) {
-                    want.push((j.start, j.end, kind, j.probs[cls] < o.threshold));
+                if j.probs[cls] >= j.floor && o.is_on(&kind) {
+                    want.push((j.start, j.end, kind, j.probs[cls] < o.threshold || j.review));
                 }
             }
             let got: Vec<_> = got.into_iter().map(|h| (h.start, h.end, h.kind, h.review)).collect();

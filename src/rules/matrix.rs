@@ -22,7 +22,7 @@
 //! 그래서 정규식이 앞의 실패한 일치에 가려 못 보던 유효한 번호도 찾는다 (겹치면 `resolve_overlaps` 가 하나만 남김).
 
 use super::dict;
-use super::patterns::{card_context, digit_bounded, ipv4_at};
+use super::patterns::{card_context, digit_bounded, glued_to_code, ipv4_at};
 use crate::common::{Hit, InfoType, MaskMode};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -40,23 +40,27 @@ struct Lane {
 }
 
 const D: &[u8] = b"0123456789";
+/// 휴대폰 가운데 첫 자리 (0 으로 시작하는 국번 뒤 번호는 없음)
+const MID: &[u8] = b"123456789";
+/// 주민·외국인 뒷자리 첫 숫자 (성별·세기: 0·9 는 1800년대 출생이라 쓰이지 않음)
+const GENDER: &[u8] = b"12345678";
 
 fn lanes() -> Vec<Lane> {
     let mut v = Vec::new();
     let rep = |c: &'static [u8], n: usize| std::iter::repeat(c).take(n);
     let seq = |parts: Vec<Vec<&'static [u8]>>| parts.concat();
-    // 전화: 01X + 7~8자리 (구분자 없음) / 01X s 3~4 s 4 (구분자는 같은 글자)
-    v.push(Lane { fam: Fam::Phone, cols: seq(vec![vec![b"0", b"1", b"016789"], rep(D, 8).collect()]), ends: vec![10, 11] });
+    // 전화: 01X + 7~8자리 (구분자 없음) / 01X s 3~4 s 4 (구분자는 같은 글자). 가운데 첫 자리는 1~9
+    v.push(Lane { fam: Fam::Phone, cols: seq(vec![vec![b"0", b"1", b"016789", MID], rep(D, 7).collect()]), ends: vec![10, 11] });
     for s in [b"-" as &[u8], b".", b" "] {
-        let head: Vec<&[u8]> = vec![b"0", b"1", b"016789", s];
-        v.push(Lane { fam: Fam::Phone, cols: seq(vec![head.clone(), rep(D, 4).collect(), vec![s], rep(D, 4).collect()]), ends: vec![13] });
-        v.push(Lane { fam: Fam::Phone, cols: seq(vec![head, rep(D, 3).collect(), vec![s], rep(D, 4).collect()]), ends: vec![12] });
+        let head: Vec<&[u8]> = vec![b"0", b"1", b"016789", s, MID];
+        v.push(Lane { fam: Fam::Phone, cols: seq(vec![head.clone(), rep(D, 3).collect(), vec![s], rep(D, 4).collect()]), ends: vec![13] });
+        v.push(Lane { fam: Fam::Phone, cols: seq(vec![head, rep(D, 2).collect(), vec![s], rep(D, 4).collect()]), ends: vec![12] });
     }
-    // 주민·외국인: YYMMDD (월 십의 자리 0·1, 일 십의 자리 0~3) + 7자리, 구분자 없음 / '-' / ' '
+    // 주민·외국인: YYMMDD (월 십의 자리 0·1, 일 십의 자리 0~3) + 성별(1~8) + 6자리, 구분자 없음 / '-' / ' '
     let birth: Vec<&[u8]> = vec![D, D, b"01", D, b"0123", D];
-    v.push(Lane { fam: Fam::Rrn, cols: seq(vec![birth.clone(), rep(D, 7).collect()]), ends: vec![13] });
+    v.push(Lane { fam: Fam::Rrn, cols: seq(vec![birth.clone(), vec![GENDER], rep(D, 6).collect()]), ends: vec![13] });
     for s in [b"-" as &[u8], b" "] {
-        v.push(Lane { fam: Fam::Rrn, cols: seq(vec![birth.clone(), vec![s], rep(D, 7).collect()]), ends: vec![14] });
+        v.push(Lane { fam: Fam::Rrn, cols: seq(vec![birth.clone(), vec![s, GENDER], rep(D, 6).collect()]), ends: vec![14] });
     }
     // 카드: 13~16자리 / 4 s 4 s 4 s 1~4  ·  아멕스: 3xxx 6 5 (14~15자리) / 3xxx s 6 s 4~5
     v.push(Lane { fam: Fam::Card, cols: rep(D, 16).collect(), ends: vec![13, 14, 15, 16] });
@@ -197,7 +201,7 @@ fn verify(text: &str, fam: Fam, s: usize, e: usize, out: &mut Vec<Hit>) {
     let digits: String = v.bytes().filter(u8::is_ascii_digit).map(char::from).collect();
     match fam {
         Fam::Phone => {
-            if !digit_bounded(text, s, e) {
+            if !digit_bounded(text, s, e) || glued_to_code(text, s, e) {
                 return;
             }
             let (prefix, rest) = digits.split_at(3);
@@ -211,16 +215,21 @@ fn verify(text: &str, fam: Fam, s: usize, e: usize, out: &mut Vec<Hit>) {
                 return;
             }
             if let Some(kind) = dict::rrn_kind(&digits[..6], &digits[6..], v.len() == 14) {
-                out.push(Hit::new(s, e, kind, MaskMode::Alnum));
+                // 보통의 표기(YYMMDD-NNNNNNN)가 아니면 의심 → 치환 + 검토필요
+                let hit = Hit::new(s, e, kind, MaskMode::Alnum);
+                out.push(if v.as_bytes()[6] == b'-' { hit } else { hit.needs_review() });
             }
         }
         Fam::Card => {
-            if !digit_bounded(text, s, e) {
+            let g: Vec<usize> = v.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).map(str::len).collect();
+            if !digit_bounded(text, s, e) || !dict::card_layout(&g) {
                 return;
             }
             let hit = Hit::new(s, e, InfoType::Card, MaskMode::Alnum);
             if dict::valid_card(&digits) {
-                out.push(hit);
+                // 붙여 쓴 숫자열은 계좌·주문·ID 번호와 겹친다 → 카드 맥락이 없으면 치환 + 검토필요
+                let bare = v.len() == digits.len();
+                out.push(if bare && !card_context(text, s) { hit.needs_review() } else { hit });
             } else if v.len() > digits.len()
                 && (13..=19).contains(&digits.len())
                 && dict::valid_card_iin(&digits)

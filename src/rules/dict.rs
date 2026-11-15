@@ -20,14 +20,18 @@ pub fn valid_ipv4(s: &str) -> bool {
         })
 }
 
-/// 식별 의미가 없는 IP (미지정/루프백/브로드캐스트/서브넷 마스크)
+/// 식별 의미가 없는 IP (미지정/루프백/브로드캐스트/서브넷 마스크/네트워크 주소)
 pub fn ipv4_is_trivial(s: &str) -> bool {
     const MASK_OCTETS: [&str; 9] = ["0", "128", "192", "224", "240", "248", "252", "254", "255"];
     if matches!(s, "0.0.0.0" | "127.0.0.1" | "255.255.255.255") {
         return true;
     }
-    // 255.x.x.x 형태의 넷마스크
     let parts: Vec<&str> = s.split('.').collect();
+    // 0.x.x.x 는 "이 네트워크"(장비 주소 아님), x.x.x.0 은 네트워크 주소 (2.3.0.0 같은 버전·구간 표기와 겹침)
+    if parts[0] == "0" || parts[3] == "0" {
+        return true;
+    }
+    // 255.x.x.x 형태의 넷마스크
     parts[0] == "255" && parts.iter().all(|p| MASK_OCTETS.contains(p))
 }
 
@@ -40,7 +44,8 @@ pub fn valid_mobile(prefix: &str, mid: &str, last: &str) -> bool {
     if !matches!(p, "10" | "11" | "16" | "17" | "18" | "19") {
         return false;
     }
-    if last.len() != 4 || mid.starts_with('0') {
+    // 가운데 첫 자리 0(0000 포함)·끝 0000 은 발급되지 않는다
+    if last.len() != 4 || mid.starts_with('0') || last == "0000" {
         return false;
     }
     match p {
@@ -51,40 +56,218 @@ pub fn valid_mobile(prefix: &str, mid: &str, last: &str) -> bool {
 
 // ───────────── 카드 번호 ─────────────
 
+/// Luhn 두 배 자리 정답표: d → 2d 의 각 자리 합
+const LUHN_DOUBLE: [u8; 10] = [0, 2, 4, 6, 8, 1, 3, 5, 7, 9];
+
 pub fn luhn(digits: &str) -> bool {
-    let mut sum = 0u32;
-    for (i, b) in digits.bytes().rev().enumerate() {
-        let mut d = (b - b'0') as u32;
-        if i % 2 == 1 {
-            d *= 2;
-            if d > 9 {
-                d -= 9;
-            }
-        }
-        sum += d;
-    }
+    let sum: u32 = digits
+        .bytes()
+        .rev()
+        .enumerate()
+        .map(|(i, b)| {
+            let d = (b - b'0') as usize;
+            (if i % 2 == 1 { LUHN_DOUBLE[d] } else { d as u8 }) as u32
+        })
+        .sum();
     sum % 10 == 0
 }
 
-/// 발급사 식별번호(IIN) 범위
+/// 길이 비트 (bit n = 길이 n 허용)
+const fn lens(from: u32, to: u32) -> u32 {
+    let mut m = 0;
+    let mut n = from;
+    while n <= to {
+        m |= 1 << n;
+        n += 1;
+    }
+    m
+}
+
+/// 발급사 식별번호(IIN) 정답표: 앞 2자리 → 허용 길이 비트.
+/// 22~27 은 마스터카드 2-시리즈(2221~2720)라 앞 4자리로 한 번 더 본다.
+const IIN: [u32; 100] = {
+    let mut t = [0u32; 100];
+    let mut p = 40;
+    while p < 50 {
+        t[p] = 1 << 13 | 1 << 16 | 1 << 19; // VISA
+        p += 1;
+    }
+    let mut p = 51;
+    while p <= 55 {
+        t[p] = 1 << 16; // Master
+        p += 1;
+    }
+    let mut p = 22;
+    while p <= 27 {
+        t[p] = 1 << 16; // Master 2-시리즈
+        p += 1;
+    }
+    t[34] = 1 << 15; // AMEX
+    t[37] = 1 << 15;
+    t[35] = lens(16, 19); // JCB
+    t[30] = lens(14, 16); // Diners
+    t[36] = lens(14, 16);
+    t[38] = lens(14, 16);
+    t[39] = lens(14, 16);
+    let mut p = 60;
+    while p < 70 {
+        t[p] = lens(16, 19); // Discover/UnionPay
+        p += 1;
+    }
+    let mut p = 90;
+    while p < 100 {
+        t[p] = 1 << 16; // 국내 전용(BC 등)
+        p += 1;
+    }
+    t
+};
+
+/// 발급사 식별번호(IIN) 범위 — 정답표 조회 한 번 (+ 2-시리즈만 4자리 범위)
 pub fn valid_card_iin(d: &str) -> bool {
-    let n = d.len();
-    let p2: u32 = d[..2].parse().unwrap_or(0);
-    let p4: u32 = d[..4].parse().unwrap_or(0);
-    match d.as_bytes()[0] {
-        b'4' => n == 13 || n == 16 || n == 19,                       // VISA
-        b'5' => (51..=55).contains(&p2) && n == 16,                  // Master
-        b'2' => (2221..=2720).contains(&p4) && n == 16,              // Master(2-series)
-        b'3' => match p2 {
-            34 | 37 => n == 15,                                      // AMEX
-            35 => (16..=19).contains(&n),                            // JCB
-            30 | 36 | 38 | 39 => (14..=16).contains(&n),             // Diners
-            _ => false,
-        },
-        b'6' => (16..=19).contains(&n),                              // Discover/UnionPay
-        b'9' => n == 16,                                             // 국내 전용(BC 등)
+    let b = d.as_bytes();
+    if b.len() < 4 || b.len() > 19 || !b[..4].iter().all(u8::is_ascii_digit) {
+        return false;
+    }
+    let num = |k: usize| b[..k].iter().fold(0usize, |a, &x| a * 10 + (x - b'0') as usize);
+    let p2 = num(2);
+    (IIN[p2] >> b.len()) & 1 == 1 && (!(22..=27).contains(&p2) || (2221..=2720).contains(&num(4)))
+}
+
+// ───────────── 구분자 위치 정답 행렬 ─────────────
+//
+// 형식마다 "묶음 경계(구분자)가 올 수 있는 자리 = 앞에서부터 숫자 개수" 를 비트로 미리 구워 둔다.
+// 후보의 경계 비트가 이 안에 들어가면(부분집합) 그 형식의 표기다: `경계 & !허용 == 0` 한 번.
+// 구분자가 빠진 표기(0109999-1234, 41111111-1111-1111)는 경계 일부가 없는 것이라 그대로 통과하고,
+// 엉뚱한 자리에 경계가 있으면(00013027665 14, 250117,250118,2502) 탈락한다.
+
+const fn bits(at: &[u32]) -> u32 {
+    let mut m = 0;
+    let mut i = 0;
+    while i < at.len() {
+        m |= 1 << at[i];
+        i += 1;
+    }
+    m
+}
+
+/// 휴대폰 010-XXXX-XXXX (11자리) / 01X-XXX-XXXX (10자리)
+pub const LAYOUT_PHONE_11: u32 = bits(&[3, 7]);
+pub const LAYOUT_PHONE_10: u32 = bits(&[3, 6]);
+/// 주민·외국인 YYMMDD-NNNNNNN
+pub const LAYOUT_RRN: u32 = bits(&[6]);
+/// 카드: 길이별 허용 경계 — 16 4-4-4-4 / 17~19 4-4-4-4-n / 15 아멕스 4-6-5 / 14 다이너스 4-6-4 / 13 은 붙여 쓰기만
+const LAYOUT_CARD: [u32; 20] = {
+    let mut t = [u32::MAX; 20];
+    t[13] = 0;
+    t[14] = bits(&[4, 10]);
+    t[15] = bits(&[4, 10]);
+    t[16] = bits(&[4, 8, 12]);
+    t[17] = bits(&[4, 8, 12, 16]);
+    t[18] = bits(&[4, 8, 12, 16]);
+    t[19] = bits(&[4, 8, 12, 16]);
+    t
+};
+
+/// 묶음 길이들 → 경계 비트
+pub fn boundaries(groups: &[usize]) -> u32 {
+    let mut at = 0;
+    let mut m = 0u32;
+    for g in &groups[..groups.len().saturating_sub(1)] {
+        at += g;
+        if at >= 32 {
+            return u32::MAX;
+        }
+        m |= 1 << at;
+    }
+    m
+}
+
+/// 경계 비트가 허용 자리 안에 들어가는가
+pub const fn fits(bounds: u32, allowed: u32) -> bool {
+    bounds & !allowed == 0
+}
+
+/// 묶음 배열이 실제 카드 표기인가 (예: `250117,250118,2502` 는 경계가 6·12, `3608-9308-3116-05` 는 14자리 4-4-4-2 → 카드 아님)
+pub fn card_layout(groups: &[usize]) -> bool {
+    let total: usize = groups.iter().sum();
+    (13..=19).contains(&total) && LAYOUT_CARD[total] != u32::MAX && fits(boundaries(groups), LAYOUT_CARD[total])
+}
+
+/// 묶음 배열이 휴대폰 표기인가
+pub fn phone_layout(groups: &[usize]) -> bool {
+    let b = boundaries(groups);
+    match groups.iter().sum::<usize>() {
+        11 => fits(b, LAYOUT_PHONE_11),
+        10 => fits(b, LAYOUT_PHONE_10),
         _ => false,
     }
+}
+
+/// 묶음 배열이 주민·외국인번호 표기인가 (예: `00013027665 14` 는 경계가 11 → 아님)
+pub fn rrn_layout(groups: &[usize]) -> bool {
+    groups.iter().sum::<usize>() == 13 && fits(boundaries(groups), LAYOUT_RRN)
+}
+
+// ───────────── 구분자 규칙 (아스키 코드 표) ─────────────
+// 원-핫 대신 구분자 바이트를 그대로 이어 붙인 값을 코드로 쓴다: "/" → 0x2F, " -> " → 0x20_2D_3E_20.
+// 프로그램으로 한 가지 규칙을 적용해 바꾼 표기는 구분자 코드가 모두 같다 → 코드끼리 XOR 이 0.
+
+/// 바이트 → 구분자 종류
+pub const SEP_NONE: u8 = 0; // 영숫자·제어문자 (구분자가 될 수 없음)
+pub const SEP_SYMBOL: u8 = 1; // 일반 기호 (^ - ~ ; * …, UTF-8 다바이트 기호 → ·)
+pub const SEP_TABLE: u8 = 2; // 숫자표의 열 구분자로도 쓰이는 것 (공백 탭 , | /)
+pub const SEP_KIND: [u8; 256] = {
+    let mut t = [SEP_SYMBOL; 256];
+    let mut i = 0;
+    while i < 0x20 {
+        t[i] = SEP_NONE;
+        i += 1;
+    }
+    t[0x7F] = SEP_NONE;
+    let mut i = b'0';
+    while i <= b'9' {
+        t[i as usize] = SEP_NONE;
+        i += 1;
+    }
+    let mut i = b'A';
+    while i <= b'Z' {
+        t[i as usize] = SEP_NONE;
+        t[(i + 32) as usize] = SEP_NONE;
+        i += 1;
+    }
+    t[b' ' as usize] = SEP_TABLE;
+    t[b'\t' as usize] = SEP_TABLE;
+    t[b',' as usize] = SEP_TABLE;
+    t[b'|' as usize] = SEP_TABLE;
+    t[b'/' as usize] = SEP_TABLE;
+    t
+};
+
+/// 구분자 문자열 → (코드, 들어 있는 종류의 비트 합). 8바이트 초과·영숫자·문자(한글 등) 포함 → None
+pub fn sep_code(s: &str) -> Option<(u64, u8)> {
+    if s.is_empty() || s.len() > 8 || s.chars().any(char::is_alphanumeric) {
+        return None;
+    }
+    let (mut code, mut kinds) = (0u64, 0u8);
+    for &b in s.as_bytes() {
+        let k = SEP_KIND[b as usize];
+        if k == SEP_NONE {
+            return None;
+        }
+        kinds |= k;
+        code = code << 8 | b as u64;
+    }
+    Some((code, kinds))
+}
+
+/// 구분자가 모두 같은 규칙인가 (코드 XOR 합이 0) → 그 (코드, 종류). 섞였으면 None
+pub fn uniform_sep<S: AsRef<str>>(seps: &[S]) -> Option<(u64, u8)> {
+    let (c0, kinds) = sep_code(seps.first()?.as_ref())?;
+    let mut diff = 0;
+    for s in &seps[1..] {
+        diff |= sep_code(s.as_ref())?.0 ^ c0;
+    }
+    (diff == 0).then_some((c0, kinds))
 }
 
 pub fn valid_card(digits: &str) -> bool {
@@ -125,7 +308,7 @@ pub fn rrn_checksum(d13: &str) -> bool {
 }
 
 /// 앞 6자리(YYMMDD) + 뒤 7자리 검사.
-/// 구분자(-)가 없으면 오탐 방지를 위해 체크섬까지 요구한다.
+/// 구분자(-)가 없으면 오탐 방지를 위해 체크섬까지 요구한다. (구분자가 `-` 가 아니면 호출부에서 검토필요로 표시)
 /// (2020.10 이후 발급 번호는 체크섬이 없으므로 구분자가 있으면 날짜·성별만 본다)
 pub fn rrn_kind(front6: &str, back7: &str, has_sep: bool) -> Option<InfoType> {
     let (f, k) = (front6.as_bytes(), back7.as_bytes());
@@ -134,6 +317,14 @@ pub fn rrn_kind(front6: &str, back7: &str, has_sep: bool) -> Option<InfoType> {
     }
     let n = |i: usize| (f[i] - b'0') as usize;
     let g = (k[0] - b'0') as usize;
+    // 성별 0·9 는 1800년대 출생 → 실제로 쓰이는 번호가 아님
+    if !(1..=8).contains(&g) {
+        return None;
+    }
+    // 뒷자리가 한 숫자 반복(000000, 111111 …)인 번호는 없다
+    if k.len() == 7 && k[1..].iter().all(|&x| x == k[1]) {
+        return None;
+    }
     // 성별 숫자 → 세기 (0=1800, 1=1900, 2=2000)
     const CENTURY: [usize; 10] = [0, 1, 1, 2, 2, 1, 1, 2, 2, 0];
     let (yymm, dd) = ((n(0) * 10 + n(1)) * 100 + n(2) * 10 + n(3), n(4) * 10 + n(5));
@@ -265,9 +456,11 @@ mod tests {
         let century = match g {
             1 | 2 | 5 | 6 => 1900,
             3 | 4 | 7 | 8 => 2000,
-            9 | 0 => 1800,
-            _ => return None,
+            _ => return None, // 0·9 (1800년대 출생) 는 쓰이지 않음
         };
+        if back7[1..].bytes().all(|x| x == back7.as_bytes()[1]) {
+            return None;
+        }
         let year = century + yy;
         if year > current_year() {
             return None;
@@ -284,7 +477,7 @@ mod tests {
     /// 모든 생년월일 6자리(000000~999999) × 성별 숫자 10개 — 기준 구현과 완전히 같은가
     #[test]
     fn rrn_date_table_matches_reference_exhaustive() {
-        let mut back = *b"0000000";
+        let mut back = *b"0123456";
         for f in 0..1_000_000u32 {
             let front = format!("{f:06}");
             for g in 0..10u8 {

@@ -192,7 +192,9 @@ fn lex(text: &str, syn: &Syntax, base: usize, out: &mut Vec<(usize, usize)>) {
             if b[i..].starts_with(open.as_bytes()) {
                 let s = i + open.len();
                 let e = find_from(b, s, close.as_bytes()).unwrap_or(n);
-                out.push((base + s, base + e));
+                // 문서 주석 기호(/** , /*!)는 본문이 아니다 — 치환하면 코드 의미가 바뀐다
+                let body = if *open == "/*" && s < e && matches!(b[s], b'*' | b'!') { s + 1 } else { s };
+                out.push((base + body, base + e));
                 i = (e + close.len()).min(n);
                 at_line_start = false;
                 continue 'outer;
@@ -211,7 +213,11 @@ fn lex(text: &str, syn: &Syntax, base: usize, out: &mut Vec<(usize, usize)>) {
                     continue; // PHP 8 attribute
                 }
             }
-            let s = i + m.len();
+            let mut s = i + m.len();
+            // 문서 주석 기호(///, //!)는 본문이 아니다 — 치환하면 코드 의미가 바뀐다
+            if *m == "//" && matches!(b.get(s), Some(b'/' | b'!')) {
+                s += 1;
+            }
             let mut e = eol(b, s);
             if e > s && b[e - 1] == b'\r' {
                 e -= 1;
@@ -279,6 +285,12 @@ mod tests {
     fn clike() {
         let t = "int a = 1; // 관리자 연락처\nchar *u = \"http://x.com\"; /* block\n note */";
         assert_eq!(bodies(t, Lang::CLike), vec!["관리자 연락처", "block\n note"]);
+    }
+
+    #[test]
+    fn doc_comment_markers_are_not_body() {
+        let t = "/// 문서 주석\n//! 모듈 설명\n/** 자바독 */\n/*! 내부 */\nlet a = 1; // 보통 주석";
+        assert_eq!(bodies(t, Lang::Rust), vec!["문서 주석", "모듈 설명", "자바독", "내부", "보통 주석"]);
     }
 
     #[test]
