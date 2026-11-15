@@ -1,5 +1,6 @@
 //! 검사 작업 — 엔진 프로세스(`deid --engine`)를 띄우고 출력 줄을 메시지로 바꿔 화면에 보낸다.
 //! 화면 프로세스에는 검사 엔진이 올라오지 않으므로 검사 후에도 메모리가 늘어난 채 남지 않는다.
+//! 화면은 타이머(`tick`)로 `rx` 를 비운다.
 
 use crate::ipc::{self, Event, Job, Parser};
 use std::io::{BufRead, BufReader, Write};
@@ -32,7 +33,7 @@ impl Drop for Handle {
     }
 }
 
-pub fn spawn(job: &Job, ctx: egui::Context) -> Result<Handle, String> {
+pub fn spawn(job: &Job) -> Result<Handle, String> {
     let mut child = ipc::spawn_engine(job).map_err(|e| format!("검사 엔진을 시작할 수 없습니다: {e}"))?;
     let stdout = child.stdout.take().ok_or("엔진 출력 연결 실패")?;
     let stdin = child.stdin.take();
@@ -47,12 +48,10 @@ pub fn spawn(job: &Job, ctx: egui::Context) -> Result<Handle, String> {
                 if tx.send(ev).is_err() {
                     return;
                 }
-                ctx.request_repaint();
             }
         }
         if !finished {
             let _ = tx.send(Event::Failed("검사 엔진이 비정상 종료했습니다 (출력 폴더는 불완전합니다)".into()));
-            ctx.request_repaint();
         }
     });
     Ok(Handle { rx, child, stdin })

@@ -13,7 +13,7 @@
 //! * `pipeline` : 폴더 단위 실행
 //! * `cli`      : 명령줄 실행
 //! * `ipc`      : 화면 프로세스 ↔ 엔진 프로세스(`--engine`) 통신
-//! * `gui`      : egui GUI (CPU 렌더링) — macOS 화면. 설정 검증·결과 저장·대화상자는 Windows 화면도 재사용
+//! * `gui`      : macOS 네이티브 GUI (AppKit). 설정 검증·결과 저장·대화상자는 Windows 화면도 재사용
 //! * `win32_gui`: Windows 네이티브 Win32 GUI — Windows 화면
 
 pub mod cli;

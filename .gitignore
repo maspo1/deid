@@ -4,7 +4,6 @@
 # 개발용 문서·에이전트 설정 (공개 문서는 README.md)
 /docs/
 /AGENTS.md
-/CLAUDE.md
 /.claude/
 
 # 실행파일 (playground 의 시험용 exe 포함)

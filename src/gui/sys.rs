@@ -1,5 +1,5 @@
 //! OS 기능 공통 창구 — 폴더/파일 선택, 탐색기(Finder) 열기, 오류 상자.
-//! Windows 는 `win.rs`(공용 대화상자 직접 호출), 그 밖의 OS 는 rfd 를 쓴다.
+//! Windows 는 `win.rs`(공용 대화상자 직접 호출), macOS 는 AppKit(NSOpenPanel·NSAlert) 을 쓴다.
 
 use std::path::{Path, PathBuf};
 
@@ -40,18 +40,37 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     use super::*;
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSModalResponseOK, NSOpenPanel};
+    use objc2_foundation::{NSArray, NSString};
+
+    /// AppKit 열기 패널 (메인 스레드 전용)
+    fn open_panel(title: &str, folders: bool, types: Option<&[&str]>) -> Option<PathBuf> {
+        let mtm = MainThreadMarker::new()?;
+        let p = NSOpenPanel::openPanel(mtm);
+        p.setCanChooseDirectories(folders);
+        p.setCanChooseFiles(!folders);
+        p.setAllowsMultipleSelection(false);
+        p.setMessage(Some(&NSString::from_str(title)));
+        if let Some(t) = types {
+            let t: Vec<_> = t.iter().map(|x| NSString::from_str(x)).collect();
+            #[allow(deprecated)]
+            p.setAllowedFileTypes(Some(&NSArray::from_retained_slice(&t)));
+        }
+        if p.runModal() != NSModalResponseOK {
+            return None;
+        }
+        p.URL()?.path().map(|s| PathBuf::from(s.to_string()))
+    }
 
     pub fn pick_folder(_: Owner, title: &str) -> Option<PathBuf> {
-        rfd::FileDialog::new().set_title(title).pick_folder()
+        open_panel(title, true, None)
     }
     pub fn pick_file(_: Owner, title: &str, filters: &[(&str, &[&str])]) -> Option<PathBuf> {
-        let mut d = rfd::FileDialog::new().set_title(title);
-        for (n, e) in filters {
-            if !e.contains(&"*") {
-                d = d.add_filter(*n, e);
-            }
-        }
-        d.pick_file()
+        // "모든 파일"(*) 이 있으면 제한하지 않는다
+        let all = filters.iter().any(|(_, e)| e.contains(&"*"));
+        let types: Vec<&str> = filters.iter().flat_map(|(_, e)| e.iter().copied()).collect();
+        open_panel(title, false, (!all).then_some(&types[..]))
     }
     fn opener() -> &'static str {
         if cfg!(target_os = "macos") {
@@ -70,12 +89,11 @@ mod imp {
             open(d);
         }
     }
-    pub fn message_box(msg: &str) {
-        rfd::MessageDialog::new().set_title(APP_TITLE).set_description(msg).set_level(rfd::MessageLevel::Error).show();
-    }
 }
 
-pub use imp::{message_box, open, pick_file, pick_folder};
+#[cfg(windows)]
+pub use imp::message_box;
+pub use imp::{open, pick_file, pick_folder};
 
 /// 파일을 선택한 상태로 폴더 열기 (파일이 없으면 가장 가까운 폴더)
 pub fn reveal(p: &Path) {
