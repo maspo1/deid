@@ -1,52 +1,77 @@
 [package]
 name = "deid"
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
-description = "파일 속 개인정보와 민감정보를 찾아 비식별화하는 오프라인 도구"
+description = "파일 내부 개인정보/민감정보 비식별화 도구"
+build = "build.rs"
 
+[lib]
+name = "deid"
+path = "src/lib.rs"
+
+[[bin]]
+name = "deid"
+path = "src/main.rs"
+
+# ───────────── 모든 OS 공통 (검사 엔진·파일 처리) ─────────────
 [dependencies]
-aho-corasick = "1.1.5"
-crc32fast = "1.5.5"
-encoding_rs = "0.8.44"
-flate2 = "1.1.11"
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "bmp", "ico", "tiff"] }
-lopdf = "0.36.0"
-rayon = "1.12.0"
-regex = "1.13.1"
-zip = { version = "2.6.1", default-features = false, features = ["deflate"] }
+regex = "1"
+# 다중 키워드 검색 (regex 가 이미 쓰는 같은 크레이트 — 새로 받는 코드 없음)
+aho-corasick = "1"
+encoding_rs = "0.8"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
+crc32fast = "1"
+rayon = "1"
+lopdf = { version = "=0.36.0", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "ico"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6.5"
-objc2-app-kit = "0.3.2"
-objc2-foundation = "0.3.2"
-objc2-vision = "0.3.2"
-
+# ───────────── Windows: 네이티브 Win32 화면(src/win32_gui) + 내장 OCR(Windows.Media.Ocr) ─────────────
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58.0", features = [
+windows = { version = "0.58", features = [
+    # 내장 OCR (Windows 10/11) — OS 기능이므로 exe 외 추가 파일 불필요
+    "Foundation",
+    "Foundation_Collections",
     "Globalization",
     "Graphics_Imaging",
     "Media_Ocr",
     "Storage_Streams",
-    "Foundation",
-    "Foundation_Collections",
+    "Win32_System_WinRT",
+    # 파일/폴더 선택 대화상자, 콘솔 연결
     "Win32_Foundation",
-    "Win32_Graphics_Gdi",
     "Win32_System_Com",
     "Win32_System_Console",
-    "Win32_System_DataExchange",
-    "Win32_System_LibraryLoader",
-    "Win32_System_Memory",
-    "Win32_System_Threading",
-    "Win32_System_WinRT",
-    "Win32_UI_Controls",
-    "Win32_UI_HiDpi",
-    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
+    # 네이티브 Win32 GUI (src/win32_gui): 글꼴·DIB, 공용 컨트롤, DPI, 모듈 핸들, 포커스·활성화
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_DataExchange", # 클립보드 (우클릭 → 복사)
+    "Win32_System_Memory",
 ] }
 
+# 테스트 전용: GDI 핸들 누수 검사(GetGuiResources) — 배포 exe 에는 들어가지 않음
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.58", features = ["Win32_System_Threading"] }
+
+# ───────────── macOS: 네이티브 AppKit 화면(src/gui/mac) + 내장 OCR(Vision) ─────────────
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-vision = "0.3"
+
+# Windows exe 에 아이콘·매니페스트·버전 리소스 포함 (build.rs, 다른 OS 대상이면 아무것도 안 함)
+[build-dependencies]
+embed-resource = "3"
+
 [profile.release]
+opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+panic = "abort"

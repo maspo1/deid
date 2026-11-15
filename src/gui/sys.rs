@@ -1,5 +1,6 @@
 //! OS 기능 공통 창구 — 폴더/파일 선택, 탐색기(Finder) 열기, 오류 상자.
 //! Windows 는 `win.rs`(공용 대화상자 직접 호출), macOS 는 AppKit(NSOpenPanel·NSAlert) 을 쓴다.
+//! 그 밖의 OS(Linux 등)는 화면 없이 CLI 로만 빌드되므로 이 모듈을 쓰지 않는다.
 
 use std::path::{Path, PathBuf};
 
@@ -37,7 +38,7 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 mod imp {
     use super::*;
     use objc2::MainThreadMarker;
@@ -72,22 +73,11 @@ mod imp {
         let types: Vec<&str> = filters.iter().flat_map(|(_, e)| e.iter().copied()).collect();
         open_panel(title, false, (!all).then_some(&types[..]))
     }
-    fn opener() -> &'static str {
-        if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "xdg-open"
-        }
-    }
     pub fn open(p: &Path) {
-        let _ = std::process::Command::new(opener()).arg(p).spawn();
+        let _ = std::process::Command::new("open").arg(p).spawn();
     }
     pub fn reveal(p: &Path) {
-        if cfg!(target_os = "macos") {
-            let _ = std::process::Command::new("open").arg("-R").arg(p).spawn();
-        } else if let Some(d) = p.parent() {
-            open(d);
-        }
+        let _ = std::process::Command::new("open").arg("-R").arg(p).spawn();
     }
 }
 

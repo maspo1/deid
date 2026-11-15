@@ -8,7 +8,6 @@
 //! 3. 분할: 추론과 같은 `deid::ocr::glyph::segment` — 조각 수가 글자 수와 같은 표본만 사용 (정답 정렬).
 //!    한글·기호만으로 된 단어는 조각 수와 상관없이 모든 조각을 "그 밖"으로 (한글 조각이 숫자로 읽히지 않게)
 //! 4. 학습: 은닉층 1개 MLP, Adam, 소프트맥스 교차 엔트로피. 검증 정확도 출력
-#![cfg(windows)]
 
 use deid::ocr::glyph::{class_of, segment, Mlp, CLASSES, FEAT};
 use image::RgbaImage;
@@ -219,7 +218,7 @@ fn degrade(r: &mut Rng, img: RgbaImage) -> RgbaImage {
     img
 }
 
-fn main() {
+pub fn main() {
     let mut r = Rng(0x2545_F491_4F6C_DD1D);
     let target: usize = std::env::args().nth(1).and_then(|v| v.parse().ok()).unwrap_or(500_000);
     let (mut xs, mut ys): (Vec<[f32; FEAT]>, Vec<usize>) = (Vec::new(), Vec::new());

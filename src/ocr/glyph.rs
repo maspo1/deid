@@ -9,7 +9,7 @@
 //! 분류: 정보 검사에 쓰이는 글자만 — `0-9`, `a-z`(대소문자 합침), `. - : @ _ / ( ) ,`, "그 밖"(?: 한글·기호).
 //! 한글은 읽지 않고 "그 밖"으로 분류한다 (한글 조각이 숫자로 읽혀 오탐이 되지 않도록 학습).
 //!
-//! 학습(`examples/train_ocr`)과 추론이 이 파일의 같은 함수를 쓴다. 가중치는 `glyph_model.bin` 을 exe 에 내장.
+//! 학습(`examples/train_ocr/`)과 추론이 이 파일의 같은 함수를 쓴다. 가중치는 `glyph_model.bin` 을 exe 에 내장.
 
 use image::{GrayImage, Luma, RgbaImage};
 

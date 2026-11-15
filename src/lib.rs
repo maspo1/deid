@@ -28,6 +28,8 @@ pub mod ocr;
 pub mod pipeline;
 pub mod report;
 pub mod rules;
+// 화면은 Windows·macOS 만 (그 밖의 OS 는 CLI 만 빌드)
+#[cfg(any(windows, target_os = "macos"))]
 pub mod gui;
 #[cfg(windows)]
 pub mod win32_gui;

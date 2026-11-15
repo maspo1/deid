@@ -4,7 +4,6 @@
 //! `cargo run --release --example bench_ocr -- run <폴더> lite|win`  검출 → 덮음률(정답 상자를 흐림이 덮음)·값 정확·오탐
 //!
 //! 정답 파일(`*.txt`): 줄마다 `x0 y0 x1 y1 종류 값`
-#![cfg(windows)]
 
 use deid::config::Options;
 use deid::handlers::raster;
@@ -286,7 +285,7 @@ fn run(dir: &Path, engine: &str) {
     }
 }
 
-fn main() {
+pub fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     match a[0].as_str() {
         "gen" => gen(Path::new(&a[1]), a.get(2).and_then(|v| v.parse().ok()).unwrap_or(60)),

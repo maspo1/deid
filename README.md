@@ -112,13 +112,19 @@ deid --help
 
 ## 빌드
 
-**환경:** Windows 10 이상, 64비트, Rust stable
+Rust stable 하나만 있으면 됩니다. 공통 검사 엔진은 같고, 화면과 OCR만 OS별로 다릅니다.
 
-```sh
-cargo build --release
-```
+| OS | 화면 | 명령 | 결과 |
+|---|---|---|---|
+| Windows 10 이상 (64비트) | Win32 네이티브 | `cargo build --release` | `target/release/deid.exe` |
+| macOS (Apple Silicon) | AppKit 네이티브 | `sh assets/macos/make_app.sh` | `target/aarch64-apple-darwin/release/deid.app` |
+| Linux 등 | 없음 (CLI만) | `cargo build --release` | `target/release/deid` |
 
-빌드 결과인 `target/release/deid.exe` 하나만 배포하면 됩니다. `.cargo/config.toml`에서 CRT 정적 링크를 설정합니다.
+- **Windows**: `build.rs`가 아이콘·매니페스트·버전 정보를 exe에 넣습니다. MSVC 툴체인은 `rc.exe`(Visual Studio Build Tools), GNU 툴체인은 `windres`(MinGW)를 씁니다. `.cargo/config.toml`에서 CRT 정적 링크를 설정하므로 exe 하나만 배포하면 됩니다.
+- **macOS**: 앱 번들(아이콘, 번들 ID, 폴더 접근 권한 설명)을 만들고 ad-hoc 서명합니다. 맨 실행파일(`cargo build`)은 아이콘이 없고 다른 폴더 접근이 막힐 수 있으니 앱 번들을 쓰세요.
+- **Linux 등**: 화면 없이 CLI로 동작합니다. 인자 없이 실행하면 사용법을 출력합니다.
+- 다른 OS에서 Windows 대상으로 교차 빌드하면 리소스 컴파일러가 없을 때 경고만 내고 아이콘·매니페스트 없는 exe를 만듭니다. 배포용 exe는 Windows에서 빌드하세요.
+- `examples/train_ocr`, `examples/bench_ocr`는 Windows 기본 글꼴·GDI를 쓰는 Windows 전용 도구입니다. 다른 OS에서는 안내 문구만 출력합니다.
 
 ## 테스트
 
